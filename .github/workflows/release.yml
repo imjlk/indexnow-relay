@@ -17,6 +17,9 @@ jobs:
   release:
     name: Sampo release automation
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.tag.outputs.version }}
+      tagged: ${{ steps.tag.outputs.created }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -29,6 +32,8 @@ jobs:
 
       # - push to main with pending changesets -> opens/updates a release PR
       # - merge of a release PR -> sampo bumps versions + CHANGELOG.md
+      #   (sampo also tags `indexnow-relay-vX.Y.Z`; the npm package is
+      #   private on purpose, so nothing is ever published to npm)
       - name: Run Sampo auto
         id: sampo
         uses: bruits/sampo/crates/sampo-github-action@main
@@ -37,22 +42,78 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # The npm package is private on purpose (releases ship as tags + the
-      # GHCR image, never to the npm registry), so `sampo publish` has no
-      # registry step to run and creates no tag. Create it here instead:
-      # whenever the committed version has no tag yet, tag it. Merging a
-      # release PR bumps the version, so the tag - and with it the Docker
-      # workflow that publishes the image and the GitHub release - follows
-      # every release exactly once.
+      # Tag the released version `vX.Y.Z` if it is not tagged yet. A tag
+      # pushed by this token would NOT trigger a separate workflow (GitHub
+      # prevents GITHUB_TOKEN recursion), so the image publish and the
+      # GitHub release run in this same pipeline instead.
       - name: Ensure vX.Y.Z tag exists for the current version
+        id: tag
         run: |
           VERSION=$(python3 -c "import json; print(json.load(open('package.json'))['version'])")
-          if ! git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
+            echo "created=false" >> "$GITHUB_OUTPUT"
+            echo "v$VERSION already tagged"
+          else
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
             git tag "v$VERSION"
             git push origin "v$VERSION"
+            echo "created=true" >> "$GITHUB_OUTPUT"
             echo "tagged v$VERSION"
-          else
-            echo "v$VERSION already tagged"
           fi
+
+  publish:
+    name: Publish image to GHCR + GitHub release
+    needs: release
+    if: needs.release.outputs.tagged == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # GitHub release
+      packages: write # push to ghcr.io
+    env:
+      REGISTRY: ghcr.io
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute version tags
+        id: ver
+        run: |
+          VERSION=${{ needs.release.outputs.version }}
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "major_minor=${VERSION%.*}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push multi-arch image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ github.repository }}:${{ steps.ver.outputs.version }}
+            ${{ env.REGISTRY }}/${{ github.repository }}:${{ steps.ver.outputs.major_minor }}
+            ${{ env.REGISTRY }}/${{ github.repository }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.ver.outputs.version }}
+          generate_release_notes: true
+          files: |
+            docs/openapi.json
+            CHANGELOG.md
