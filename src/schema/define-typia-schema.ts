@@ -49,6 +49,13 @@ export interface TypiaStandardSchema<T> {
   readonly '~standard': TypiaStandardSchemaProps<T>
 }
 
+/**
+ * Combines a compiled typia validator and JSON Schema unit into one schema
+ * object satisfying Standard Schema V1 and Standard JSON Schema V1.
+ *
+ * @evidence docs/REQUIREMENTS.md#toolchain-contract Owns the typia-to-oRPC
+ *           bridge that keeps OpenAPI schemas real instead of empty.
+ */
 export function defineTypiaSchema<T>(artifacts: TypiaSchemaArtifacts<T>): TypiaStandardSchema<T> {
   const draft202012 = toStandaloneJsonSchema(artifacts.unit31)
   const draft7 = artifacts.unit30 === undefined ? undefined : toStandaloneJsonSchema(artifacts.unit30)

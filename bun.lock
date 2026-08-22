@@ -12,6 +12,8 @@
         "typia": "^14.0.2",
       },
       "devDependencies": {
+        "@ttsc/evidence": "^0.28.1",
+        "@ttsc/lint": "^0.28.1",
         "@ttsc/unplugin": "^0.28.1",
         "@types/bun": "^1.4.0",
         "ttsc": "^0.28.1",
@@ -46,6 +48,8 @@
 
     "@orpc/shared": ["@orpc/shared@2.0.0-beta.30", "", { "dependencies": { "@standardserver/shared": "^0.8.0", "radash": "^12.1.1", "type-fest": "^5.3.1" }, "peerDependencies": { "@opentelemetry/api": ">=1.9.0" }, "optionalPeers": ["@opentelemetry/api"] }, "sha512-zQNMlVyc4P6c8vEwoskAaQtUA6sw3uDrwyZibJs4RGlUjxN5koZexyAmmfyywyjedVi70/IPef3g+bhlf1Njew=="],
 
+    "@prisma/prisma-schema-wasm": ["@prisma/prisma-schema-wasm@7.10.0-2.d0368e25c88e68caa4d283b5f2d88d1b76ed9356", "", {}, "sha512-loEbWBr+xUSqtIYaoJCrIuDeVs/fSY29Efshp+3rrTgQtyEqJ2iGuLTt9XnRZYBUE+eWC8ps0nOblyckgBehJQ=="],
+
     "@standard-schema/spec": ["@standard-schema/spec@1.1.0", "", {}, "sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w=="],
 
     "@standardserver/aws-lambda": ["@standardserver/aws-lambda@0.8.0", "", { "dependencies": { "@standardserver/core": "0.8.0", "@standardserver/fetch": "0.8.0", "@standardserver/node": "0.8.0", "@standardserver/shared": "0.8.0" } }, "sha512-5fa8KQ1mFNyu8qRfHSshe4ta4Qbv621qsDT/Sed/bWe0ZzrXMOCEtKE5wyEv/S3co7Vb0+u0pF1oIGtYf49iwA=="],
@@ -65,6 +69,10 @@
     "@ttsc/darwin-arm64": ["@ttsc/darwin-arm64@0.28.1", "", { "os": "darwin", "cpu": "arm64" }, "sha512-DNEcf5b/Z4RwFqfeHiN29+9aW/A/2XG+CUNLNBLftGCR24wbr6mlK+vgeurWEVyT3cVB4uVYfVpQo25VKvJ/gA=="],
 
     "@ttsc/darwin-x64": ["@ttsc/darwin-x64@0.28.1", "", { "os": "darwin", "cpu": "x64" }, "sha512-MCecQQ9d9GaSE+7n4I0xK6Z/UsB/NaWYcB35ZN7rVJ8WSb8o8WB1tvS+WTuYNXAuK4KVsnv6YVNwY8kyROfClw=="],
+
+    "@ttsc/evidence": ["@ttsc/evidence@0.28.1", "", { "dependencies": { "@prisma/prisma-schema-wasm": "7.10.0-2.d0368e25c88e68caa4d283b5f2d88d1b76ed9356", "@typia/interface": "14.0.0", "@typia/utils": "14.0.0", "yaml": "^2.9.0" }, "peerDependencies": { "@ttsc/lint": ">=0.24.0" } }, "sha512-BM9llmzoRhLYMA1CoONHZzyVc4Twqe500hM1Ng8kQ8Mok45bXxSnTBHwwpc/+kK0hRcenoRaOqDQG9jVjsT0ug=="],
+
+    "@ttsc/lint": ["@ttsc/lint@0.28.1", "", {}, "sha512-8aTY3i3hRTRRafr4jLc5e1fQOAQrn/nUCmX7QSXkrhKJNla1g6p/YzYws83yVgYcaQBzzTJshjhPFaHOCP7YGw=="],
 
     "@ttsc/linux-arm": ["@ttsc/linux-arm@0.28.1", "", { "os": "linux", "cpu": "arm" }, "sha512-8x2SyV7FC4r/IphhxJxS09BwrXHnKN3vQMj2gUwTDoZXKnXL7sJO1M0Ulm5N05F6tKvKkil9HPGu4Srhar5eoQ=="],
 
@@ -122,9 +130,9 @@
 
     "@typescript/typescript-win32-x64": ["@typescript/typescript-win32-x64@7.0.2", "", { "os": "win32", "cpu": "x64" }, "sha512-0BQ3HkAHHlKLSp1qRvf3SUhGpGsDuhB/jgFw75guyqbxJqEaS0Cw/VFO8i2nHglJUzQCRtMMR/IBAKE3ETMC4g=="],
 
-    "@typia/interface": ["@typia/interface@14.0.2", "", {}, "sha512-2P/f5s3js/Yw3x7JJuM6jjhyWON3/asnXGE0p2n6WV4KxTgTWO1Qj/euPN8Y5+mfiYQuq8TcIRBekVyjyFlVWQ=="],
+    "@typia/interface": ["@typia/interface@14.0.0", "", {}, "sha512-rzueBuE8TQYJStfyunPuonx4Irqi9L0tDiTTpfJBt5ZKaVA7MYirJvtlBoj0SExhnoF6hcjabQzz906NF6u57w=="],
 
-    "@typia/utils": ["@typia/utils@14.0.2", "", { "dependencies": { "@typia/interface": "^14.0.2" } }, "sha512-lDeWtIv6IF06bhuJJGxu/BkUrasJyxSYgIZ246lFTZxW53BhNnRoc+LaJSmbj/V39409PY3n7dotNVdVytY7fA=="],
+    "@typia/utils": ["@typia/utils@14.0.0", "", { "dependencies": { "@typia/interface": "^14.0.0" } }, "sha512-zXJUft0gI/CJ8DxxBZUFb7HtyqxoUB1qhNkscvagCgTmQeuZFdQgkDIkgYMxKa48M9+pv4FbOFlDo7rDWO9Ytw=="],
 
     "acorn": ["acorn@8.18.0", "", { "bin": { "acorn": "bin/acorn" } }, "sha512-lGq+9yr1/GuAWaVYIHRjvvySG5/4VfKIvC8EWxStPdcDh/Ka7FG3twP6v4d5BkravUilhIAsG4Qj83t02LWUPQ=="],
 
@@ -161,5 +169,13 @@
     "unplugin": ["unplugin@2.3.11", "", { "dependencies": { "@jridgewell/remapping": "^2.3.5", "acorn": "^8.15.0", "picomatch": "^4.0.3", "webpack-virtual-modules": "^0.6.2" } }, "sha512-5uKD0nqiYVzlmCRs01Fhs2BdkEgBS3SAVP6ndrBsuK42iC2+JHyxM05Rm9G8+5mkmRtzMZGY8Ct5+mliZxU/Ww=="],
 
     "webpack-virtual-modules": ["webpack-virtual-modules@0.6.2", "", {}, "sha512-66/V2i5hQanC51vBQKPH4aI8NMAcBW59FVBs+rC7eGHupMyfn34q7rZIE+ETlJ+XTevqfUhVVBgSUNSW2flEUQ=="],
+
+    "yaml": ["yaml@2.9.0", "", { "bin": { "yaml": "bin.mjs" } }, "sha512-2AvhNX3mb8zd6Zy7INTtSpl1F15HW6Wnqj0srWlkKLcpYl/gMIMJiyuGq2KeI2YFxUPjdlB+3Lc10seMLtL4cA=="],
+
+    "@typia/utils/@typia/interface": ["@typia/interface@14.0.2", "", {}, "sha512-2P/f5s3js/Yw3x7JJuM6jjhyWON3/asnXGE0p2n6WV4KxTgTWO1Qj/euPN8Y5+mfiYQuq8TcIRBekVyjyFlVWQ=="],
+
+    "typia/@typia/interface": ["@typia/interface@14.0.2", "", {}, "sha512-2P/f5s3js/Yw3x7JJuM6jjhyWON3/asnXGE0p2n6WV4KxTgTWO1Qj/euPN8Y5+mfiYQuq8TcIRBekVyjyFlVWQ=="],
+
+    "typia/@typia/utils": ["@typia/utils@14.0.2", "", { "dependencies": { "@typia/interface": "^14.0.2" } }, "sha512-lDeWtIv6IF06bhuJJGxu/BkUrasJyxSYgIZ246lFTZxW53BhNnRoc+LaJSmbj/V39409PY3n7dotNVdVytY7fA=="],
   }
 }

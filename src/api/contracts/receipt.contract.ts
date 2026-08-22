@@ -3,7 +3,13 @@ import { openapi } from '@orpc/openapi'
 
 import { GetReceiptInputSchema, GetReceiptOutputSchema } from '../schemas/receipt.schema.ts'
 
-/** `GET /v1/receipts/{id}` - inspect what happened to a submission. */
+/**
+ * `GET /v1/receipts/{id}` - inspect what happened to a submission.
+ *
+ * @evidence docs/REQUIREMENTS.md#receipts Owns the receipt read contract
+ *           (per-host counts plus stillPending progress).
+ * @evidence GET:/v1/receipts/{id} Declares this operation's route and schemas.
+ */
 export const getReceiptContract = oc
   .meta(
     openapi({

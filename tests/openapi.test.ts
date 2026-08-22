@@ -12,7 +12,17 @@ const document = await buildOpenApiDocument(router)
 describe('OpenAPI document', () => {
   test('matches the checked-in snapshot (run `bun run generate:openapi` after contract changes)', async () => {
     const snapshot = await Bun.file('docs/openapi.json').json()
-    expect(document).toEqual(snapshot)
+    // `info.version` tracks package.json and is bumped by release PRs
+    // without regenerating this file; the served spec always carries the
+    // live version, so only the shape is snapshotted.
+    const stripVersion = (doc: Record<string, unknown>): Record<string, unknown> => {
+      const info = { ...((doc['info'] as Record<string, unknown>) ?? {}) }
+      delete info['version']
+      return { ...doc, info }
+    }
+    expect(stripVersion(document as unknown as Record<string, unknown>)).toEqual(
+      stripVersion(snapshot as Record<string, unknown>),
+    )
   })
 
   test('has no dangling $refs anywhere in the document', () => {

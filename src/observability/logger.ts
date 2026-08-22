@@ -9,6 +9,9 @@ const REDACT_PATTERN = /key|token|secret|password|authorization/i
  * Every field passes through `redact()`: anything whose key smells like a
  * secret is replaced with `[redacted]`, so IndexNow keys and bearer tokens
  * can never leak into logs even if a call site is careless.
+ *
+ * @evidence docs/REQUIREMENTS.md#observability-and-secret-hygiene Owns the
+ *           JSON-per-line logging pipeline and its secret redaction.
  */
 export class Logger {
   readonly #level: LogLevel

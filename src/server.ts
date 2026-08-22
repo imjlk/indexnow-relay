@@ -18,7 +18,7 @@ async function shutdown(signal: string): Promise<void> {
   if (shuttingDown) return
   shuttingDown = true
   app.logger.info('shutting down', { signal })
-  server.stop(true)
+  void server.stop(true)
   await closeApp(app)
   process.exit(0)
 }

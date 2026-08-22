@@ -14,6 +14,9 @@ export function livenessResponse(): Response {
 /**
  * Readiness: can the relay actually serve? Checks that the scheduler is
  * running and the database answers a trivial query.
+ *
+ * @evidence docs/REQUIREMENTS.md#observability-and-secret-hygiene Owns the
+ *           /readyz probe (scheduler + database).
  */
 export async function readinessResponse(app: RelayApp): Promise<Response> {
   if (!app.scheduler.isRunning) {

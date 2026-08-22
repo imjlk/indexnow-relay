@@ -123,12 +123,18 @@ function definedEntries<T extends object>(input: T | undefined): Partial<T> {
 /**
  * Expands shorthand site entries, resolves environment secrets, validates all
  * cross-references, and produces the fully normalized runtime configuration.
+ *
+ * @evidence docs/REQUIREMENTS.md#site-configuration Turns the host-keyed user
+ *           config (shorthand or advanced) into the normalized site registry
+ *           with derived key locations and validated tokens.
  */
 export function normalizeRelayConfig(input: RelayConfigInput): NormalizedRelayConfig {
   const siteEntries = Object.entries(input.sites ?? {})
   if (siteEntries.length === 0) {
     throw new ConfigError('sites: at least one site is required.')
   }
+
+  const queue = normalizeQueue(input.queue)
 
   const sites: Record<string, NormalizedSite> = {}
   for (const [rawHost, siteInput] of siteEntries) {
@@ -147,7 +153,7 @@ export function normalizeRelayConfig(input: RelayConfigInput): NormalizedRelayCo
       keyPath,
       keyLocation: `https://${host}${keyPath.replace('{key}', key)}`,
       enabled: advanced?.enabled ?? true,
-      batchSize: advanced?.batchSize ?? input.defaults?.batchSize ?? DEFAULT_QUEUE_CONFIG.maxBatchSize,
+      batchSize: advanced?.batchSize ?? input.defaults?.batchSize ?? queue.maxBatchSize,
       minResubmitIntervalMs:
         advanced?.minResubmitIntervalMs ??
         input.defaults?.minResubmitIntervalMs ??
@@ -156,8 +162,6 @@ export function normalizeRelayConfig(input: RelayConfigInput): NormalizedRelayCo
   }
 
   const tokens = normalizeAuth(input.auth, sites)
-
-  const queue = normalizeQueue(input.queue)
 
   const databasePath = input.database?.path ?? process.env['INDEXNOW_RELAY_DB'] ?? 'data/relay.db'
   const host = process.env['HOST'] ?? input.server?.host ?? '0.0.0.0'

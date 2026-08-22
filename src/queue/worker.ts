@@ -4,7 +4,7 @@ import type { NormalizedQueueConfig, NormalizedSite } from '../config/config.typ
 import type { PendingUrlsRepository } from '../db/repositories/pending-urls.repo.ts'
 import type { SubmissionBatchesRepository } from '../db/repositories/batches.repo.ts'
 import type { SubmissionStateRepository } from '../db/repositories/submission-state.repo.ts'
-import { IndexNowClient } from '../indexnow/client.ts'
+import type { IndexNowClient } from '../indexnow/client.ts'
 import { buildPayload } from '../indexnow/payload.ts'
 import { classifySubmitResult } from '../indexnow/response-policy.ts'
 import type { Logger } from '../observability/logger.ts'
@@ -34,6 +34,9 @@ export interface DrainResult {
  * Drains one site: repeatedly claims due URLs, sends one IndexNow batch per
  * claim, and applies the outcome to the leased rows. Runs at most
  * `maxConcurrentSites` drains at a time (enforced by the scheduler).
+ *
+ * @evidence docs/REQUIREMENTS.md#persistent-queue-and-recovery Owns the
+ *           lease-claim-drain loop over the persistent SQLite queue.
  */
 export async function drainSite(
   site: NormalizedSite,

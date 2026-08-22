@@ -11,6 +11,10 @@ export interface RecoveryResult {
 /**
  * Crash recovery. On boot, every lease and in-flight batch belongs to a dead
  * process: release the URLs and close the audit rows so work resumes cleanly.
+ *
+ * @evidence docs/REQUIREMENTS.md#persistent-queue-and-recovery Recovers stale
+ *           leases and dangling in-flight batches on boot so queued work
+ *           resumes after a crash.
  */
 export function recoverFromCrash(db: Database, pendingUrls: PendingUrlsRepository, batches: SubmissionBatchesRepository): RecoveryResult {
   const now = Date.now()

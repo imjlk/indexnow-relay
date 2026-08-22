@@ -229,8 +229,9 @@ Requires [Bun](https://bun.sh) >= 1.4.
 ```bash
 bun install
 bun run dev                # watch mode; config: ./relay.config.ts
-bun test                   # 75 tests
+bun run test               # 75 tests
 bun run typecheck          # ttsc (TypeScript 7) + typia transform
+bun run lint               # ttsc + @ttsc/lint + the evidence graph
 bun run build              # production bundle -> dist/
 bun start                  # run the bundle (NODE_ENV=production)
 bun run generate:openapi   # refresh docs/openapi.json after contract changes
@@ -242,6 +243,21 @@ Local dev config (`relay.config.ts`, git-ignored) imports from
 ```ts
 import { defineConfig, env } from './src/config/index.ts'
 ```
+
+### Lint and the evidence graph
+
+`bun run lint` runs one native `ttsc` pass that gates types, lint rules, and
+the evidence graph together (`lint.config.ts`):
+
+- **Every H2 section in [`docs/REQUIREMENTS.md`](docs/REQUIREMENTS.md) must
+  be cited** by an exported symbol under `src/` with an `@evidence` tag and a
+  reason — a requirement can't silently lose its owner.
+- **Every operation in `docs/openapi.json` must be cited** by its contract
+  declaration under `src/api/` — an endpoint can't exist undocumented.
+
+`@ttsc/lint`'s evaluator needs Node APIs the Bun runtime doesn't implement,
+so lint runs through the native CLI (`tsconfig.lint.json`); the Bun runtime
+preload and `Bun.build` load the typia transformer only.
 
 ### Architecture notes
 
@@ -271,6 +287,25 @@ src/
 ├─ indexnow/               client, payload, response policy
 └─ observability/          JSON logger (redaction), health
 ```
+
+## Releases
+
+Releases are managed with [Sampo](https://github.com/bruits/sampo)
+changesets:
+
+1. Every user-facing PR adds a changeset
+   (`.sampo/changesets/<name>.md`, see `.sampo/changeset.md.example` or run
+   `sampo add`).
+2. Pushing to `main` with pending changesets opens/updates a **release PR**
+   that bumps `package.json` and regenerates `CHANGELOG.md`.
+3. Merging the release PR makes the [Release workflow](.github/workflows/release.yml)
+   tag `vX.Y.Z`, which triggers the [Docker workflow](.github/workflows/docker.yml):
+   a multi-arch (`linux/amd64`, `linux/arm64`) image is published to
+   `ghcr.io/imjlk/indexnow-relay` (tags `X.Y.Z`, `X.Y`, `latest`, commit SHA)
+   and a GitHub release is created with the OpenAPI document attached.
+
+The npm package is deliberately private: releases ship as git tags, GitHub
+releases, and container images — never to the npm registry.
 
 ## License
 

@@ -1,0 +1,25 @@
+# Sampo configuration
+version = 1
+
+[git]
+default_branch = "main"
+# Tags are plain vX.Y.Z (matches the GHCR release workflow trigger);
+# there is only one package, so short tags cannot collide.
+short_tags = "npm/indexnow-relay"
+
+[github]
+repository = "imjlk/indexnow-relay"
+
+[changesets]
+# Keep-a-Changelog style sections via `bump (Tag)` changeset entries.
+tags = ["Added", "Changed", "Deprecated", "Removed", "Fixed", "Security"]
+
+[changelog]
+show_commit_hash = true
+show_acknowledgments = true
+
+[packages]
+# The npm package here is the application itself: it is versioned and
+# changelogged but never published to the npm registry (private: true).
+# Releases ship as git tags + GitHub Releases + the GHCR image.
+ignore_unpublished = false

@@ -3,6 +3,12 @@ import { findToken } from '../core/site.ts'
 import { forbiddenAdmin, unauthorized } from '../core/errors.ts'
 import type { ApiContext } from './context.ts'
 
+/**
+ * Extracts and verifies the bearer token for a request.
+ *
+ * @evidence docs/REQUIREMENTS.md#authentication-and-authorization Enforces the
+ *           bearer-token gate every endpoint passes through.
+ */
 export function authenticate(context: ApiContext): NormalizedToken {
   const header = context.request.headers.get('authorization')
   if (header === null || !header.startsWith('Bearer ')) {

@@ -3,6 +3,10 @@
     "plugins": [
       {
         "transform": "typia/lib/transform"
+      },
+      {
+        "transform": "@ttsc/lint",
+        "configFile": "./lint.config.ts"
       }
     ]
   },

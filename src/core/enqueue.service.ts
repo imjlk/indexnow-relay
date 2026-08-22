@@ -38,6 +38,11 @@ export interface EnqueueServiceDeps {
  * Implements `POST /v1/urls` semantics with all-or-nothing validation:
  * every URL is parsed and authorized BEFORE any write happens, then all
  * writes land in a single SQLite transaction.
+ *
+ * @evidence docs/REQUIREMENTS.md#url-submission Owns submission semantics:
+ *           normalization, all-or-nothing validation, host grouping,
+ *           coalescing, resubmit suppression, and dead-URL revival, with the
+ *           receipt written in the same transaction.
  */
 export class EnqueueService {
   readonly #deps: EnqueueServiceDeps
@@ -122,7 +127,7 @@ export class EnqueueService {
           }
 
           const existing = this.#deps.pendingUrls.get(host, url)
-          if (existing == null) {
+          if (existing === null) {
             this.#deps.pendingUrls.insertNew(
               host,
               url,

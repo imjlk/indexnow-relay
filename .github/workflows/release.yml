@@ -3,70 +3,51 @@ name: Release
 on:
   push:
     branches: [main]
-    tags: ['v*.*.*']
-  workflow_dispatch:
+  workflow_dispatch: {}
 
 permissions:
-  contents: write
-  packages: write
+  contents: write # tags and releases
+  pull-requests: write # release PRs
 
-env:
-  REGISTRY: ghcr.io
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  publish-image:
-    name: Publish multi-arch image to GHCR
+  release:
+    name: Sampo release automation
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - uses: docker/setup-qemu-action@v3
         with:
-          platforms: arm64
+          fetch-depth: 0 # full history for changelog links/acknowledgments
 
-      - uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
+      # - push to main with pending changesets -> opens/updates a release PR
+      # - merge of a release PR -> sampo bumps versions + CHANGELOG.md
+      - name: Run Sampo auto
+        id: sampo
+        uses: bruits/sampo/crates/sampo-github-action@main
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          command: auto
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract image metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ github.repository }}
-          tags: |
-            type=ref,event=branch
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
-            type=raw,value=edge,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
-
-      - name: Build and push
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-  github-release:
-    name: Create GitHub release
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: publish-image
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: softprops/action-gh-release@v2
-        with:
-          generate-release-notes: true
-          files: |
-            docs/openapi.json
+      # The npm package is private on purpose (releases ship as tags + the
+      # GHCR image, never to the npm registry), so `sampo publish` has no
+      # registry step to run and creates no tag. Create it here instead:
+      # whenever the committed version has no tag yet, tag it. Merging a
+      # release PR bumps the version, so the tag - and with it the Docker
+      # workflow that publishes the image and the GitHub release - follows
+      # every release exactly once.
+      - name: Ensure vX.Y.Z tag exists for the current version
+        run: |
+          VERSION=$(python3 -c "import json; print(json.load(open('package.json'))['version'])")
+          if ! git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git tag "v$VERSION"
+            git push origin "v$VERSION"
+            echo "tagged v$VERSION"
+          else
+            echo "v$VERSION already tagged"
+          fi

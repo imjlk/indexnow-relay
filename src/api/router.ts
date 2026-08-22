@@ -36,7 +36,7 @@ export function createRouter(app: RelayApp) {
     getReceipt: implement(getReceiptContract).$context<ApiContext>().handler(async ({ input, context }): Promise<GetReceiptOutput> => {
       const token = authenticate(context)
       const row = app.receipts.get(input.id)
-      if (row == null) {
+      if (row === null) {
         throw domainError('NOT_FOUND', `Receipt ${input.id} does not exist.`)
       }
 

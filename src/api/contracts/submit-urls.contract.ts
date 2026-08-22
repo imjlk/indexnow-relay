@@ -10,6 +10,9 @@ import { SubmitUrlsInputSchema, SubmitUrlsOutputSchema } from '../schemas/submit
  *
  * Validation is all-or-nothing: if any URL is invalid, any host is unknown,
  * or the token lacks access to any host, nothing is enqueued.
+ *
+ * @evidence POST:/v1/urls Declares this operation's route, schemas, and
+ *           error codes.
  */
 export const submitUrlsContract = oc
   .meta(

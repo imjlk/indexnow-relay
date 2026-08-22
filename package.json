@@ -1,6 +1,6 @@
 {
   "name": "indexnow-relay",
-  "version": "0.1.0",
+  "version": "0.0.0",
   "description": "Self-hosted IndexNow relay with a persistent SQLite queue, batching, coalescing, and retries. Built with Bun, TypeScript 7 (ttsc), typia, and oRPC v2.",
   "type": "module",
   "license": "MIT",
@@ -27,7 +27,8 @@
     "start": "bun dist/server.js",
     "typecheck": "ttsc --noEmit",
     "test": "NODE_ENV=development bun test",
-    "generate:openapi": "bun --preload ./scripts/preload.ts scripts/generate-openapi.ts"
+    "generate:openapi": "bun --preload ./scripts/preload.ts scripts/generate-openapi.ts",
+    "lint": "ttsc -p tsconfig.lint.json --noEmit"
   },
   "dependencies": {
     "@orpc/contract": "2.0.0-beta.30",
@@ -37,9 +38,12 @@
     "typia": "^14.0.2"
   },
   "devDependencies": {
-    "@types/bun": "^1.4.0",
+    "@ttsc/evidence": "^0.28.1",
+    "@ttsc/lint": "^0.28.1",
     "@ttsc/unplugin": "^0.28.1",
+    "@types/bun": "^1.4.0",
     "ttsc": "^0.28.1",
     "typescript": "^7.0.2"
-  }
+  },
+  "private": true
 }

@@ -12,6 +12,8 @@ relay.config.ts
 .env
 .env.*
 bunfig.toml
+lint.config.ts
+tsconfig.lint.json
 Dockerfile
 docker-compose.yml
 .dockerignore

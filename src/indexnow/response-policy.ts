@@ -21,6 +21,10 @@ const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504])
  * - 429 / 5xx / network -> retry with backoff
  * - 400 / 403 / 422 etc. -> permanent failure (bad request, invalid key,
  *                          URLs not matching the host); retrying cannot help
+ *
+ * @evidence docs/REQUIREMENTS.md#delivery-semantics Encodes the IndexNow
+ *           response policy: 200/202 succeed, 429/5xx/network retry, other
+ *           4xx fail permanently.
  */
 export function classifySubmitResult(result: RawSubmitResult): SubmissionOutcome {
   if (result.networkError || !result.completed) {

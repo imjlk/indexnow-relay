@@ -7,7 +7,8 @@ import ttsc from '@ttsc/unplugin/bun'
  *   import { defineConfig, env } from 'indexnow-relay/config'
  *
  * Everything is bundled (typia runtime included) - the runtime image needs
- * no node_modules.
+ * no node_modules. The plugin list is pinned to typia (see preload.ts for
+ * why @ttsc/lint stays out of transform paths; it gates via `bun run lint`).
  */
 const result = await Bun.build({
   entrypoints: ['./src/server.ts', './src/config/index.ts'],
@@ -15,7 +16,12 @@ const result = await Bun.build({
   outdir: './dist',
   sourcemap: 'external',
   splitting: true,
-  plugins: [ttsc({ project: './tsconfig.json' }) as never],
+  plugins: [
+    ttsc({
+      project: './tsconfig.json',
+      plugins: [{ transform: 'typia/lib/transform' }],
+    }) as never,
+  ],
 })
 
 if (!result.success) {
