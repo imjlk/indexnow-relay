@@ -1,0 +1,26 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+
+# runtime data (SQLite database, WAL files)
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# local configuration with real secrets - keep only the example in git
+relay.config.ts
+.env
+.env.*
+!.env.example
+
+# logs
+*.log
+
+# editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp

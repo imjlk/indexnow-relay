@@ -1,0 +1,45 @@
+{
+  "name": "indexnow-relay",
+  "version": "0.1.0",
+  "description": "Self-hosted IndexNow relay with a persistent SQLite queue, batching, coalescing, and retries. Built with Bun, TypeScript 7 (ttsc), typia, and oRPC v2.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/imjlk/indexnow-relay.git"
+  },
+  "bugs": {
+    "url": "https://github.com/imjlk/indexnow-relay/issues"
+  },
+  "engines": {
+    "bun": ">=1.4.0"
+  },
+  "exports": {
+    "./config": {
+      "types": "./src/config/index.ts",
+      "development": "./src/config/index.ts",
+      "default": "./dist/config/index.js"
+    }
+  },
+  "scripts": {
+    "dev": "NODE_ENV=development bun --preload ./scripts/preload.ts --watch src/server.ts",
+    "build": "bun scripts/build.ts",
+    "start": "bun dist/server.js",
+    "typecheck": "ttsc --noEmit",
+    "test": "NODE_ENV=development bun test",
+    "generate:openapi": "bun --preload ./scripts/preload.ts scripts/generate-openapi.ts"
+  },
+  "dependencies": {
+    "@orpc/contract": "2.0.0-beta.30",
+    "@orpc/openapi": "2.0.0-beta.30",
+    "@orpc/server": "2.0.0-beta.30",
+    "@standard-schema/spec": "^1.1.0",
+    "typia": "^14.0.2"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.0",
+    "@ttsc/unplugin": "^0.28.1",
+    "ttsc": "^0.28.1",
+    "typescript": "^7.0.2"
+  }
+}

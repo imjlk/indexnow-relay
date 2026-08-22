@@ -1,0 +1,1539 @@
+{
+  "info": {
+    "title": "IndexNow Relay API",
+    "version": "0.1.0",
+    "description": "Submit URLs once and let the relay batch, coalesce, retry, and deliver them to IndexNow per site. Authenticate with `Authorization: Bearer <token>`."
+  },
+  "openapi": "3.1.2",
+  "components": {
+    "schemas": {
+      "SubmitUrlsInput": {
+        "type": "object",
+        "properties": {
+          "urls": {
+            "$ref": "#/components/schemas/SubmitUrlList",
+            "description": "Public URLs that were created, changed, or deleted."
+          },
+          "event": {
+            "oneOf": [
+              {
+                "const": "created"
+              },
+              {
+                "const": "deleted"
+              },
+              {
+                "const": "updated"
+              }
+            ]
+          }
+        },
+        "required": [
+          "urls"
+        ],
+        "additionalProperties": false
+      },
+      "SubmitUrlList": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 10000,
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "description": "Per-element length bounds mirror core/url.ts MAX_URL_LENGTH."
+      },
+      "SubmitUrlsOutput": {
+        "type": "object",
+        "properties": {
+          "receiptId": {
+            "type": "string"
+          },
+          "received": {
+            "type": "number"
+          },
+          "enqueued": {
+            "type": "number"
+          },
+          "coalesced": {
+            "type": "number"
+          },
+          "sites": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SiteSubmissionSummary"
+            }
+          }
+        },
+        "required": [
+          "receiptId",
+          "received",
+          "enqueued",
+          "coalesced",
+          "sites"
+        ],
+        "additionalProperties": false
+      },
+      "SiteSubmissionSummary": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "type": "string"
+          },
+          "enqueued": {
+            "type": "number"
+          },
+          "coalesced": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "host",
+          "enqueued",
+          "coalesced"
+        ],
+        "additionalProperties": false
+      },
+      "UndefinedError": {
+        "type": "object",
+        "properties": {
+          "defined": {
+            "const": false
+          },
+          "inferable": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "string"
+          },
+          "status": {
+            "type": "number"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {}
+        },
+        "required": [
+          "defined",
+          "inferable",
+          "code",
+          "status",
+          "message"
+        ]
+      },
+      "Unauthorized": {
+        "type": "object",
+        "properties": {
+          "defined": {
+            "const": true
+          },
+          "inferable": {
+            "type": "boolean"
+          },
+          "code": {
+            "const": "UNAUTHORIZED"
+          },
+          "status": {
+            "const": 401
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {}
+        },
+        "required": [
+          "defined",
+          "inferable",
+          "code",
+          "status",
+          "message"
+        ]
+      },
+      "ForbiddenSite": {
+        "type": "object",
+        "properties": {
+          "defined": {
+            "const": true
+          },
+          "inferable": {
+            "type": "boolean"
+          },
+          "code": {
+            "const": "FORBIDDEN_SITE"
+          },
+          "status": {
+            "const": 403
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {}
+        },
+        "required": [
+          "defined",
+          "inferable",
+          "code",
+          "status",
+          "message"
+        ]
+      },
+      "InvalidUrl": {
+        "type": "object",
+        "properties": {
+          "defined": {
+            "const": true
+          },
+          "inferable": {
+            "type": "boolean"
+          },
+          "code": {
+            "const": "INVALID_URL"
+          },
+          "status": {
+            "const": 400
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {}
+        },
+        "required": [
+          "defined",
+          "inferable",
+          "code",
+          "status",
+          "message"
+        ]
+      },
+      "UnknownSite": {
+        "type": "object",
+        "properties": {
+          "defined": {
+            "const": true
+          },
+          "inferable": {
+            "type": "boolean"
+          },
+          "code": {
+            "const": "UNKNOWN_SITE"
+          },
+          "status": {
+            "const": 400
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {}
+        },
+        "required": [
+          "defined",
+          "inferable",
+          "code",
+          "status",
+          "message"
+        ]
+      },
+      "GetReceiptInput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/ReceiptId"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "ReceiptId": {
+        "type": "string",
+        "minLength": 26,
+        "maxLength": 26,
+        "description": "ULID (26 Crockford base32 characters)."
+      },
+      "GetReceiptOutput": {
+        "type": "object",
+        "properties": {
+          "receiptId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "received": {
+            "type": "number"
+          },
+          "enqueued": {
+            "type": "number"
+          },
+          "coalesced": {
+            "type": "number"
+          },
+          "sites": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SiteSubmissionSummary"
+            }
+          },
+          "stillPending": {
+            "type": "number",
+            "description": "URLs from this receipt that are still waiting to be submitted."
+          }
+        },
+        "required": [
+          "receiptId",
+          "createdAt",
+          "received",
+          "enqueued",
+          "coalesced",
+          "sites",
+          "stillPending"
+        ],
+        "additionalProperties": false
+      },
+      "NotFound": {
+        "type": "object",
+        "properties": {
+          "defined": {
+            "const": true
+          },
+          "inferable": {
+            "type": "boolean"
+          },
+          "code": {
+            "const": "NOT_FOUND"
+          },
+          "status": {
+            "const": 404
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {}
+        },
+        "required": [
+          "defined",
+          "inferable",
+          "code",
+          "status",
+          "message"
+        ]
+      },
+      "AdminOverviewOutput": {
+        "type": "object",
+        "properties": {
+          "queue": {
+            "type": "object",
+            "properties": {
+              "pending": {
+                "type": "number"
+              },
+              "dead": {
+                "type": "number"
+              },
+              "nextDueAt": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "pending",
+              "dead",
+              "nextDueAt"
+            ],
+            "additionalProperties": false
+          },
+          "batches": {
+            "type": "object",
+            "properties": {
+              "succeeded": {
+                "type": "number"
+              },
+              "retryScheduled": {
+                "type": "number"
+              },
+              "dead": {
+                "type": "number"
+              },
+              "inFlight": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "succeeded",
+              "retryScheduled",
+              "dead",
+              "inFlight"
+            ],
+            "additionalProperties": false
+          },
+          "sites": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdminSiteStatus"
+            }
+          }
+        },
+        "required": [
+          "queue",
+          "batches",
+          "sites"
+        ],
+        "additionalProperties": false
+      },
+      "AdminSiteStatus": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "paused": {
+            "type": "boolean"
+          },
+          "pending": {
+            "type": "number"
+          },
+          "dead": {
+            "type": "number"
+          },
+          "nextDueAt": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          }
+        },
+        "required": [
+          "host",
+          "enabled",
+          "paused",
+          "pending",
+          "dead",
+          "nextDueAt"
+        ],
+        "additionalProperties": false
+      },
+      "Forbidden": {
+        "type": "object",
+        "properties": {
+          "defined": {
+            "const": true
+          },
+          "inferable": {
+            "type": "boolean"
+          },
+          "code": {
+            "const": "FORBIDDEN"
+          },
+          "status": {
+            "const": 403
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {}
+        },
+        "required": [
+          "defined",
+          "inferable",
+          "code",
+          "status",
+          "message"
+        ]
+      },
+      "ListBatchesInput": {
+        "type": "object",
+        "properties": {
+          "site": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 500
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "ListBatchesOutput": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/AdminBatchRecord"
+        }
+      },
+      "AdminBatchRecord": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "site": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AdminBatchStatus"
+          },
+          "urlCount": {
+            "type": "number"
+          },
+          "attempt": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "completedAt": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "retryAt": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "httpStatus": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "number"
+              }
+            ]
+          },
+          "errorCode": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "errorMessage": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "site",
+          "status",
+          "urlCount",
+          "attempt",
+          "createdAt",
+          "completedAt",
+          "retryAt",
+          "httpStatus",
+          "errorCode",
+          "errorMessage"
+        ],
+        "additionalProperties": false
+      },
+      "AdminBatchStatus": {
+        "oneOf": [
+          {
+            "const": "dead"
+          },
+          {
+            "const": "in_flight"
+          },
+          {
+            "const": "retry_scheduled"
+          },
+          {
+            "const": "succeeded"
+          }
+        ]
+      },
+      "ListDeadLettersInput": {
+        "type": "object",
+        "properties": {
+          "site": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 500
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "ListDeadLettersOutput": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/AdminDeadLetterRecord"
+        }
+      },
+      "AdminDeadLetterRecord": {
+        "type": "object",
+        "properties": {
+          "site": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "attempts": {
+            "type": "number"
+          },
+          "lastError": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "lastSeenAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "site",
+          "url",
+          "attempts",
+          "lastError",
+          "lastSeenAt"
+        ],
+        "additionalProperties": false
+      },
+      "RetryDeadLettersInput": {
+        "type": "object",
+        "properties": {
+          "site": {
+            "type": "string",
+            "description": "Restrict the retry to one site."
+          },
+          "urls": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 10000,
+            "items": {
+              "type": "string"
+            },
+            "description": "Restrict the retry to specific URLs."
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "RetryDeadLettersOutput": {
+        "type": "object",
+        "properties": {
+          "requeued": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "requeued"
+        ],
+        "additionalProperties": false
+      },
+      "SiteActionInput": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "type": "string",
+            "minLength": 1
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "host"
+        ],
+        "additionalProperties": false
+      },
+      "SiteActionOutput": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "type": "string"
+          },
+          "paused": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "host",
+          "paused"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "paths": {
+    "/v1/urls": {
+      "post": {
+        "operationId": "submitUrls",
+        "summary": "Submit URLs for IndexNow notification",
+        "tags": [
+          "urls"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "urls": {
+                    "$ref": "#/components/schemas/SubmitUrlList",
+                    "description": "Public URLs that were created, changed, or deleted."
+                  },
+                  "event": {
+                    "oneOf": [
+                      {
+                        "const": "created"
+                      },
+                      {
+                        "const": "deleted"
+                      },
+                      {
+                        "const": "updated"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "urls"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "receiptId": {
+                      "type": "string"
+                    },
+                    "received": {
+                      "type": "number"
+                    },
+                    "enqueued": {
+                      "type": "number"
+                    },
+                    "coalesced": {
+                      "type": "number"
+                    },
+                    "sites": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/SiteSubmissionSummary"
+                      }
+                    }
+                  },
+                  "required": [
+                    "receiptId",
+                    "received",
+                    "enqueued",
+                    "coalesced",
+                    "sites"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "One or more URLs are invalid., One or more hosts are not configured on this relay.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/InvalidUrl"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UnknownSite"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UndefinedError"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/Unauthorized"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UndefinedError"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Token is not allowed to submit for one or more hosts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ForbiddenSite"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UndefinedError"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/receipts/{id}": {
+      "get": {
+        "operationId": "getReceipt",
+        "summary": "Get the status of a submission receipt",
+        "tags": [
+          "receipts"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "required": true,
+            "name": "id",
+            "schema": {
+              "$ref": "#/components/schemas/ReceiptId"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "receiptId": {
+                      "type": "string"
+                    },
+                    "createdAt": {
+                      "type": "string"
+                    },
+                    "received": {
+                      "type": "number"
+                    },
+                    "enqueued": {
+                      "type": "number"
+                    },
+                    "coalesced": {
+                      "type": "number"
+                    },
+                    "sites": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/SiteSubmissionSummary"
+                      }
+                    },
+                    "stillPending": {
+                      "type": "number",
+                      "description": "URLs from this receipt that are still waiting to be submitted."
+                    }
+                  },
+                  "required": [
+                    "receiptId",
+                    "createdAt",
+                    "received",
+                    "enqueued",
+                    "coalesced",
+                    "sites",
+                    "stillPending"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/Unauthorized"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UndefinedError"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown receipt id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/NotFound"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UndefinedError"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/overview": {
+      "get": {
+        "operationId": "admin.overview",
+        "summary": "Queue overview",
+        "tags": [
+          "admin"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "queue": {
+                      "type": "object",
+                      "properties": {
+                        "pending": {
+                          "type": "number"
+                        },
+                        "dead": {
+                          "type": "number"
+                        },
+                        "nextDueAt": {
+                          "oneOf": [
+                            {
+                              "type": "null"
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "pending",
+                        "dead",
+                        "nextDueAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "batches": {
+                      "type": "object",
+                      "properties": {
+                        "succeeded": {
+                          "type": "number"
+                        },
+                        "retryScheduled": {
+                          "type": "number"
+                        },
+                        "dead": {
+                          "type": "number"
+                        },
+                        "inFlight": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "succeeded",
+                        "retryScheduled",
+                        "dead",
+                        "inFlight"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "sites": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/AdminSiteStatus"
+                      }
+                    }
+                  },
+                  "required": [
+                    "queue",
+                    "batches",
+                    "sites"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/Unauthorized"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UndefinedError"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Requires an unrestricted token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/Forbidden"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UndefinedError"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/batches": {
+      "get": {
+        "operationId": "admin.listBatches",
+        "summary": "List recent IndexNow submission batches",
+        "tags": [
+          "admin"
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "site",
+            "schema": {
+              "type": "string"
+            },
+            "allowEmptyValue": true,
+            "allowReserved": true
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "allowEmptyValue": true,
+            "allowReserved": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AdminBatchRecord"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/Unauthorized"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UndefinedError"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Requires an unrestricted token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/Forbidden"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UndefinedError"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/dead-letters": {
+      "get": {
+        "operationId": "admin.listDeadLetters",
+        "summary": "List dead-lettered URLs",
+        "tags": [
+          "admin"
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "site",
+            "schema": {
+              "type": "string"
+            },
+            "allowEmptyValue": true,
+            "allowReserved": true
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "allowEmptyValue": true,
+            "allowReserved": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AdminDeadLetterRecord"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/Unauthorized"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UndefinedError"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Requires an unrestricted token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/Forbidden"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UndefinedError"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/dead-letters/retry": {
+      "post": {
+        "operationId": "admin.retryDeadLetters",
+        "summary": "Requeue dead-lettered URLs",
+        "tags": [
+          "admin"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "site": {
+                    "type": "string",
+                    "description": "Restrict the retry to one site."
+                  },
+                  "urls": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 10000,
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Restrict the retry to specific URLs."
+                  }
+                },
+                "required": [],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "requeued": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "requeued"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/Unauthorized"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UndefinedError"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Requires an unrestricted token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/Forbidden"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UndefinedError"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/sites/{host}/pause": {
+      "post": {
+        "operationId": "admin.pauseSite",
+        "summary": "Pause submissions for a site",
+        "tags": [
+          "admin"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "required": true,
+            "name": "host",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "host": {
+                      "type": "string"
+                    },
+                    "paused": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "host",
+                    "paused"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/Unauthorized"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UndefinedError"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Requires an unrestricted token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/Forbidden"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UndefinedError"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown site.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/NotFound"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UndefinedError"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/sites/{host}/resume": {
+      "post": {
+        "operationId": "admin.resumeSite",
+        "summary": "Resume submissions for a site",
+        "tags": [
+          "admin"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "required": true,
+            "name": "host",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "host": {
+                      "type": "string"
+                    },
+                    "paused": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "host",
+                    "paused"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/Unauthorized"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UndefinedError"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Requires an unrestricted token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/Forbidden"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UndefinedError"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown site.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/NotFound"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UndefinedError"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

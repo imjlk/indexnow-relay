@@ -1,0 +1,17 @@
+services:
+  relay:
+    # Prebuilt image from GitHub Container Registry.
+    image: ghcr.io/imjlk/indexnow-relay:latest
+    # To build from source instead, comment out `image` and uncomment:
+    # build: .
+    restart: unless-stopped
+    ports:
+      - '3000:3000'
+    env_file:
+      - .env
+    volumes:
+      - ./relay.config.ts:/app/relay.config.ts:ro
+      - relay-data:/app/data
+
+volumes:
+  relay-data:

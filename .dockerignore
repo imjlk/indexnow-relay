@@ -1,0 +1,17 @@
+# Only what is needed to build the image is copied in; keep this lean.
+.git/
+.github/
+node_modules/
+dist/
+data/
+tests/
+docs/
+*.md
+!README.md
+relay.config.ts
+.env
+.env.*
+bunfig.toml
+Dockerfile
+docker-compose.yml
+.dockerignore
