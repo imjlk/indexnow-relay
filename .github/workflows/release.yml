@@ -22,6 +22,11 @@ jobs:
         with:
           fetch-depth: 0 # full history for changelog links/acknowledgments
 
+      # sampo regenerates bun.lock after bumping package.json
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+
       # - push to main with pending changesets -> opens/updates a release PR
       # - merge of a release PR -> sampo bumps versions + CHANGELOG.md
       - name: Run Sampo auto
