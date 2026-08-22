@@ -1,6 +1,6 @@
 {
   "name": "indexnow-relay",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Self-hosted IndexNow relay with a persistent SQLite queue, batching, coalescing, and retries. Built with Bun, TypeScript 7 (ttsc), typia, and oRPC v2.",
   "type": "module",
   "license": "MIT",
