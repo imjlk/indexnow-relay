@@ -36,6 +36,14 @@ jobs:
 
       - name: Smoke test the built server
         run: |
+          cat > relay.config.ts <<'EOF'
+          import { defineConfig, env } from './dist/config/index.js'
+
+          export default defineConfig({
+            auth: env('INDEXNOW_RELAY_TOKEN'),
+            sites: { 'www.example.com': env('INDEXNOW_KEY_WWW_EXAMPLE_COM') },
+          })
+          EOF
           export INDEXNOW_RELAY_TOKEN=ci-token-0000000000001
           export INDEXNOW_KEY_WWW_EXAMPLE_COM=a1b2c3d4e5f60718
           export PORT=3199
