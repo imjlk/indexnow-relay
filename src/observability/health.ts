@@ -6,17 +6,20 @@ const jsonResponse = (status: number, body: Record<string, unknown>): Response =
     headers: { 'content-type': 'application/json; charset=utf-8' },
   })
 
-/** Liveness: is the process itself healthy? */
+/** Liveness (`/health/live`, legacy alias `/healthz`): is the process up? */
 export function livenessResponse(): Response {
   return jsonResponse(200, { status: 'ok' })
 }
 
 /**
- * Readiness: can the relay actually serve? Checks that the scheduler is
- * running and the database answers a trivial query.
+ * Readiness (`/health/ready`, legacy alias `/readyz`): can the relay serve?
+ * Checks that the scheduler is running and the database answers a trivial
+ * query; config load and migrations are guaranteed by the time the server
+ * accepts requests. Never calls the IndexNow API.
  *
  * @evidence docs/REQUIREMENTS.md#observability-and-secret-hygiene Owns the
- *           /readyz probe (scheduler + database).
+ *           /health/live and /health/ready probes (process liveness;
+ *           scheduler + database readiness).
  */
 export async function readinessResponse(app: RelayApp): Promise<Response> {
   if (!app.scheduler.isRunning) {

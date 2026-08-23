@@ -111,8 +111,8 @@ export function buildApp(config: NormalizedRelayConfig, options: BuildAppOptions
 export async function routeRequest(app: RelayApp, request: Request): Promise<Response> {
   const { pathname } = new URL(request.url)
 
-  if (pathname === '/healthz') return livenessResponse()
-  if (pathname === '/readyz') return await readinessResponse(app)
+  if (pathname === '/health/live' || pathname === '/healthz') return livenessResponse()
+  if (pathname === '/health/ready' || pathname === '/readyz') return await readinessResponse(app)
 
   try {
     const result = await app.handler.handle(request, { context: { request, app } })

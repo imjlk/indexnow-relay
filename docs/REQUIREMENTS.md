@@ -103,8 +103,11 @@ submissions.
 
 ## Observability and secret hygiene
 
-`/healthz` is process liveness; `/readyz` checks the scheduler and database.
-Logs are one JSON object per line with secret-named fields redacted.
+`/health/live` reports process liveness and `/health/ready` checks the
+scheduler and the SQLite database (unauthenticated; `/healthz` and `/readyz`
+remain as legacy aliases). Neither probe calls the IndexNow API. Logs are one
+JSON object per line with secret-named fields redacted, and startup logs list
+site hostnames only.
 Structured request failures and submission outcomes are logged without
 secrets. `/` serves interactive API docs and `/openapi.json` the OpenAPI 3.1
 document.

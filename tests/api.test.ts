@@ -218,6 +218,15 @@ describe('admin endpoints', () => {
 })
 
 describe('health and docs', () => {
+  test('health aliases: /health/live + /healthz, /health/ready + /readyz', async () => {
+    const a = track(createTestApp({ fetchImpl: neverCalledFetch() }))
+    expect((await routeRequest(a, new Request(`${BASE}/health/live`))).status).toBe(200)
+    expect((await routeRequest(a, new Request(`${BASE}/healthz`))).status).toBe(200)
+    expect((await routeRequest(a, new Request(`${BASE}/health/ready`))).status).toBe(503)
+    a.scheduler.start()
+    expect((await routeRequest(a, new Request(`${BASE}/health/ready`))).status).toBe(200)
+  })
+
   test('healthz is always live; readyz requires a running scheduler', async () => {
     const a = track(createTestApp({ fetchImpl: neverCalledFetch() }))
 
