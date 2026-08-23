@@ -51,17 +51,21 @@ jobs:
         run: |
           VERSION=$(python3 -c "import json; print(json.load(open('package.json'))['version'])")
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
-            echo "created=false" >> "$GITHUB_OUTPUT"
-            echo "v$VERSION already tagged"
-          else
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git tag "v$VERSION"
-            git push origin "v$VERSION"
-            echo "created=true" >> "$GITHUB_OUTPUT"
-            echo "tagged v$VERSION"
-          fi
+          {
+            echo "## Release summary"
+            echo "- version: \\`$VERSION\\`"
+            if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
+              echo "created=false" >> "$GITHUB_OUTPUT"
+              echo "- tag: \\`v$VERSION\\` already existed - nothing to publish"
+            else
+              git config user.name "github-actions[bot]"
+              git config user.email "github-actions[bot]@users.noreply.github.com"
+              git tag "v$VERSION"
+              git push origin "v$VERSION"
+              echo "created=true" >> "$GITHUB_OUTPUT"
+              echo "- tag: created \\`v$VERSION\\` - publishing image & GitHub release"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
   publish:
     name: Publish image to GHCR + GitHub release
@@ -117,3 +121,13 @@ jobs:
           files: |
             docs/openapi.json
             CHANGELOG.md
+
+      - name: Publish summary
+        run: |
+          VERSION=${{ steps.ver.outputs.version }}
+          {
+            echo "## Published v$VERSION"
+            echo "- image: \\`ghcr.io/${{ github.repository }}:$VERSION\\` (also \\`${VERSION%.*}\\`, \\`latest\\`; linux/amd64, linux/arm64)"
+            echo "- package: https://github.com/${{ github.repository }}/pkgs/container/indexnow-relay"
+            echo "- release: https://github.com/${{ github.repository }}/releases/tag/v$VERSION"
+          } >> "$GITHUB_STEP_SUMMARY"
