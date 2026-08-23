@@ -1,7 +1,7 @@
 {
   "info": {
     "title": "IndexNow Relay API",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "description": "Submit URLs once and let the relay batch, coalesce, retry, and deliver them to IndexNow per site. Authenticate with `Authorization: Bearer <token>`."
   },
   "openapi": "3.1.2",
@@ -1082,13 +1082,17 @@
           {
             "in": "query",
             "name": "limit",
-            "schema": {
-              "type": "number",
-              "minimum": 1,
-              "maximum": 500
-            },
             "allowEmptyValue": true,
-            "allowReserved": true
+            "allowReserved": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "number",
+                  "minimum": 1,
+                  "maximum": 500
+                }
+              }
+            }
           }
         ],
         "responses": {
@@ -1162,13 +1166,17 @@
           {
             "in": "query",
             "name": "limit",
-            "schema": {
-              "type": "number",
-              "minimum": 1,
-              "maximum": 500
-            },
             "allowEmptyValue": true,
-            "allowReserved": true
+            "allowReserved": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "number",
+                  "minimum": 1,
+                  "maximum": 500
+                }
+              }
+            }
           }
         ],
         "responses": {

@@ -181,6 +181,32 @@ describe('admin endpoints', () => {
     expect(sites.find((s) => s.host === WWW_HOST)!.pending).toBe(1)
   })
 
+  test('parses and validates numeric list limits from query parameters', async () => {
+    const a = track(createTestApp({ fetchImpl: neverCalledFetch() }))
+    const headers = { authorization: `Bearer ${ADMIN_TOKEN}` }
+
+    const batches = await routeRequest(a, new Request(`${BASE}/v1/admin/batches?limit=10`, { headers }))
+    expect(batches.status).toBe(200)
+
+    const deadLetters = await routeRequest(
+      a,
+      new Request(`${BASE}/v1/admin/dead-letters?site=${WWW_HOST}&limit=10`, { headers }),
+    )
+    expect(deadLetters.status).toBe(200)
+
+    const belowMinimum = await routeRequest(
+      a,
+      new Request(`${BASE}/v1/admin/dead-letters?limit=0`, { headers }),
+    )
+    expect(belowMinimum.status).toBe(400)
+
+    const invalid = await routeRequest(
+      a,
+      new Request(`${BASE}/v1/admin/batches?limit=not-a-number`, { headers }),
+    )
+    expect(invalid.status).toBe(400)
+  })
+
   test('pause and resume a site', async () => {
     const a = track(createTestApp({ fetchImpl: neverCalledFetch() }))
 
