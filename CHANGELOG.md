@@ -1,5 +1,25 @@
 # indexnow-relay
 
+## 0.2.0 — 2026-08-23
+
+### Added
+
+- [8297dd5](https://github.com/imjlk/indexnow-relay/commit/8297dd5dda944f12202c2fff3aeaff725b45c17e) Coolify one-file deployment and environment-variable configuration.
+  
+  - `INDEXNOW_SITES`: configure sites without a relay.config.ts - the same
+    `sites` object as JSON, plus `INDEXNOW_RELAY_TOKEN` for auth. A config
+    file and `INDEXNOW_SITES` together is a loud configuration conflict;
+    errors never echo the (secret) JSON value.
+  - New `docker-compose.coolify.yml` built on Coolify Magic Environment
+    Variables: the only required input is `INDEXNOW_SITES` (store it as a
+    Secret). The API token comes from `SERVICE_PASSWORD_64_RELAY`, the
+    public URL from `SERVICE_URL_RELAY_8080`, and no host ports are
+    published.
+  - Health probes at `/health/live` and `/health/ready` (`/healthz` and
+    `/readyz` remain as aliases).
+  - Container data directory normalized to `/data` (was `/app/data`); mount
+    volumes there. Startup logs now list site hostnames. — Thanks @imjlk!
+
 ## 0.1.0 — 2026-08-22
 
 ### Added
