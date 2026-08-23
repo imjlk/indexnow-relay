@@ -1,7 +1,7 @@
 {
   "info": {
     "title": "IndexNow Relay API",
-    "version": "0.0.0",
+    "version": "0.1.0",
     "description": "Submit URLs once and let the relay batch, coalesce, retry, and deliver them to IndexNow per site. Authenticate with `Authorization: Bearer <token>`."
   },
   "openapi": "3.1.2",

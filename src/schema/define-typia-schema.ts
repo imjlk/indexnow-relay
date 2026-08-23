@@ -32,7 +32,12 @@ export interface TypiaSchemaArtifacts<T> {
   readonly validator: StandardSchemaV1<T, T>
   /** JSON Schema unit for draft-2020-12 / OpenAPI 3.1 targets. */
   readonly unit31: IJsonSchemaUnit<'3.1', T>
-  /** Optional unit for openapi-3.0 / draft-07 targets. */
+  /**
+   * Optional unit for `openapi-3.0` / `draft-07` targets. Nothing in this
+   * repo requests those targets (oRPC always asks for `draft-2020-12`), so
+   * call sites omit it; pass it only if a consumer needs a 3.0-dialect
+   * schema, and the bridge will serve it.
+   */
   readonly unit30?: IJsonSchemaUnit<'3.0', T>
 }
 

@@ -1,4 +1,7 @@
+import typia from 'typia'
 import type { tags } from 'typia'
+
+import { defineTypiaSchema } from '../../schema/define-typia-schema.ts'
 
 /** Per-element length bounds mirror core/url.ts MAX_URL_LENGTH. */
 export type SubmitUrlList = Array<string & tags.MinLength<1> & tags.MaxLength<2048>> &
@@ -30,3 +33,13 @@ export interface SubmitUrlsOutput {
   coalesced: number
   sites: SiteSubmissionSummary[]
 }
+
+export const SubmitUrlsInputSchema = defineTypiaSchema({
+  validator: typia.createValidateEquals<SubmitUrlsInput>(),
+  unit31: typia.json.schema<SubmitUrlsInput, '3.1'>(),
+})
+
+export const SubmitUrlsOutputSchema = defineTypiaSchema({
+  validator: typia.createValidateEquals<SubmitUrlsOutput>(),
+  unit31: typia.json.schema<SubmitUrlsOutput, '3.1'>(),
+})

@@ -1,7 +1,7 @@
 import { oc } from '@orpc/contract'
 import { openapi } from '@orpc/openapi'
 
-import { SubmitUrlsInputSchema, SubmitUrlsOutputSchema } from '../schemas/submit-urls.schema.ts'
+import { SubmitUrlsInputSchema, SubmitUrlsOutputSchema } from '../schemas/submit-urls.ts'
 
 /**
  * `POST /v1/urls` - submit URLs across any number of configured sites in one

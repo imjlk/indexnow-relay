@@ -1,7 +1,7 @@
 import { oc } from '@orpc/contract'
 import { openapi } from '@orpc/openapi'
 
-import { GetReceiptInputSchema, GetReceiptOutputSchema } from '../schemas/receipt.schema.ts'
+import { GetReceiptInputSchema, GetReceiptOutputSchema } from '../schemas/receipt.ts'
 
 /**
  * `GET /v1/receipts/{id}` - inspect what happened to a submission.

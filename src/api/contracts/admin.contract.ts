@@ -11,7 +11,7 @@ import {
   RetryDeadLettersOutputSchema,
   SiteActionInputSchema,
   SiteActionOutputSchema,
-} from '../schemas/admin.schema.ts'
+} from '../schemas/admin.ts'
 
 /**
  * Operator endpoints. All of them require a token with unrestricted site

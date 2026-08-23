@@ -19,9 +19,9 @@ import type {
   AdminDeadLetterRecord,
   AdminOverviewOutput,
   AdminSiteStatus,
-} from './schemas/admin.types.ts'
-import type { GetReceiptOutput } from './schemas/receipt.types.ts'
-import type { SiteSubmissionSummary } from './schemas/submit-urls.types.ts'
+} from './schemas/admin.ts'
+import type { GetReceiptOutput } from './schemas/receipt.ts'
+import type { SiteSubmissionSummary } from './schemas/submit-urls.ts'
 
 const iso = (ms: number | null | undefined): string | null =>
   ms === null || ms === undefined ? null : new Date(ms).toISOString()
