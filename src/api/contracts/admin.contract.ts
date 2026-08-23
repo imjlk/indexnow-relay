@@ -41,7 +41,6 @@ export const adminListBatchesContract = oc
       path: '/v1/admin/batches',
       tags: ['admin'],
       summary: 'List recent IndexNow submission batches',
-      queryStyles: { limit: 'json' },
     }),
   )
   .input(ListBatchesInputSchema)
@@ -62,7 +61,6 @@ export const adminListDeadLettersContract = oc
       path: '/v1/admin/dead-letters',
       tags: ['admin'],
       summary: 'List dead-lettered URLs',
-      queryStyles: { limit: 'json' },
     }),
   )
   .input(ListDeadLettersInputSchema)

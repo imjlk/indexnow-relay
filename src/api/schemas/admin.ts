@@ -1,7 +1,7 @@
 import typia from 'typia'
 import type { tags } from 'typia'
 
-import { defineTypiaSchema } from '../../schema/define-typia-schema.ts'
+import { defineTypiaSchema, type TypiaStandardSchema } from '../../schema/define-typia-schema.ts'
 
 // ---------------------------------------------------------------------------
 // GET /v1/admin/overview
@@ -77,6 +77,23 @@ export interface AdminDeadLetterRecord {
 
 export type ListDeadLettersOutput = AdminDeadLetterRecord[]
 
+function withNumericLimitQuery<T>(schema: TypiaStandardSchema<T>): TypiaStandardSchema<T> {
+  const standard = schema['~standard']
+  return {
+    '~standard': {
+      ...standard,
+      validate: (value) => standard.validate(coerceNumericLimit(value)),
+    },
+  }
+}
+
+function coerceNumericLimit(value: unknown): unknown {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return value
+  const input = value as Record<string, unknown>
+  if (typeof input['limit'] !== 'string' || !/^\d+$/u.test(input['limit'])) return value
+  return { ...input, limit: Number(input['limit']) }
+}
+
 // ---------------------------------------------------------------------------
 // POST /v1/admin/dead-letters/retry
 // ---------------------------------------------------------------------------
@@ -115,20 +132,20 @@ export const AdminOverviewOutputSchema = defineTypiaSchema({
   unit31: typia.json.schema<AdminOverviewOutput, '3.1'>(),
 })
 
-export const ListBatchesInputSchema = defineTypiaSchema({
+export const ListBatchesInputSchema = withNumericLimitQuery(defineTypiaSchema({
   validator: typia.createValidateEquals<ListBatchesInput>(),
   unit31: typia.json.schema<ListBatchesInput, '3.1'>(),
-})
+}))
 
 export const ListBatchesOutputSchema = defineTypiaSchema({
   validator: typia.createValidateEquals<ListBatchesOutput>(),
   unit31: typia.json.schema<ListBatchesOutput, '3.1'>(),
 })
 
-export const ListDeadLettersInputSchema = defineTypiaSchema({
+export const ListDeadLettersInputSchema = withNumericLimitQuery(defineTypiaSchema({
   validator: typia.createValidateEquals<ListDeadLettersInput>(),
   unit31: typia.json.schema<ListDeadLettersInput, '3.1'>(),
-})
+}))
 
 export const ListDeadLettersOutputSchema = defineTypiaSchema({
   validator: typia.createValidateEquals<ListDeadLettersOutput>(),

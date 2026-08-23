@@ -1082,17 +1082,13 @@
           {
             "in": "query",
             "name": "limit",
+            "schema": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 500
+            },
             "allowEmptyValue": true,
-            "allowReserved": true,
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "number",
-                  "minimum": 1,
-                  "maximum": 500
-                }
-              }
-            }
+            "allowReserved": true
           }
         ],
         "responses": {
@@ -1166,17 +1162,13 @@
           {
             "in": "query",
             "name": "limit",
+            "schema": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 500
+            },
             "allowEmptyValue": true,
-            "allowReserved": true,
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "number",
-                  "minimum": 1,
-                  "maximum": 500
-                }
-              }
-            }
+            "allowReserved": true
           }
         ],
         "responses": {
