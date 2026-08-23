@@ -1,5 +1,11 @@
 # indexnow-relay
 
+## 0.2.1 — 2026-08-23
+
+### Fixed
+
+- [8c12333](https://github.com/imjlk/indexnow-relay/commit/8c12333313b6409f39363571c6dc779e4992d69e) Parse numeric `limit` query parameters on the admin batches and dead-letter endpoints while preserving range validation. — Thanks @imjlk!
+
 ## 0.2.0 — 2026-08-23
 
 ### Added
