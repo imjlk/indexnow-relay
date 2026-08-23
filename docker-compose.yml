@@ -10,8 +10,9 @@ services:
     env_file:
       - .env
     volumes:
-      - ./relay.config.ts:/app/relay.config.ts:ro
-      - relay-data:/app/data
+      - relay-data:/data
+      # Optional: prefer a relay.config.ts over INDEXNOW_SITES? Mount it:
+      # - ./relay.config.ts:/app/relay.config.ts:ro
 
 volumes:
   relay-data:

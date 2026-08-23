@@ -11,6 +11,16 @@ WORKDIR /app
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
 
+# Compile the ttsc/typia native plugin in its own lockfile-keyed layer: the
+# first build downloads a Go toolchain and compiles typescript-go (gigabytes
+# of scratch cache; slow, especially under QEMU-emulated arm64). Warming via
+# the tiny docker/warm project compiles the same plugin version cache the
+# real build uses, so source-only changes never pay this cost again. Only
+# the small plugins/ artifact is kept; the Go scratch is deleted.
+COPY docker ./docker
+RUN bun docker/warm-build.ts \
+  && rm -rf node_modules/.cache/ttsc/go-build node_modules/.cache/warm-dist /root/go
+
 COPY tsconfig.json tsconfig.base.json ./
 COPY src ./src
 COPY scripts ./scripts
@@ -18,7 +28,7 @@ COPY scripts ./scripts
 RUN bun run build
 
 # Writable state directory template (owned by the runtime user).
-RUN mkdir -p /app/data
+RUN mkdir -p /data
 
 # ---------------------------------------------------------------------------
 # Runtime stage: distroless. Only the bundled dist/ output ships - no
@@ -29,8 +39,7 @@ FROM oven/bun:1.4-distroless AS runtime
 WORKDIR /app
 
 ENV NODE_ENV=production \
-    INDEXNOW_RELAY_CONFIG=/app/relay.config.ts \
-    INDEXNOW_RELAY_DB=/app/data/relay.db
+    INDEXNOW_RELAY_DB=/data/relay.db
 
 # The server itself.
 COPY --from=build --chown=65532:65532 /app/dist ./dist
@@ -41,16 +50,17 @@ COPY --from=build --chown=65532:65532 /app/package.json ./package.json
 COPY --from=build --chown=65532:65532 /app/package.json ./node_modules/indexnow-relay/package.json
 COPY --from=build --chown=65532:65532 /app/dist ./node_modules/indexnow-relay/dist
 
-# SQLite lives in /app/data - mount a volume on it.
-COPY --from=build --chown=65532:65532 /app/data /app/data
+# SQLite lives in /data - mount a volume on it. A mounted relay.config.ts is
+# optional: INDEXNOW_SITES (+ INDEXNOW_RELAY_TOKEN) also configures the relay.
+COPY --from=build --chown=65532:65532 /data /data
 
 USER 65532:65532
 
 EXPOSE 3000
-VOLUME ["/app/data"]
+VOLUME ["/data"]
 
 # Distroless has no shell; the check runs Bun directly. It assumes the
-# default port 3000 (override alongside PORT in your orchestrator).
+# default port 3000 - compose files that change PORT override this check.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD ["bun", "-e", "await fetch('http://127.0.0.1:3000/healthz').then((r) => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"]
 

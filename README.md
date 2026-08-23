@@ -48,8 +48,8 @@ openssl rand -hex 16   # e.g. 3f2b8c1d4e5f60718293a4b5c6d7e8f9
 # serve the key string at https://www.example.com/3f2b8c1d4e5f60718293a4b5c6d7e8f9.txt
 ```
 
-Create `relay.config.ts` (see [`relay.config.example.ts`](relay.config.example.ts))
-and an `.env` (see [`.env.example`](.env.example)):
+Create an `.env` (see [`.env.example`](.env.example)) - sites go in
+`INDEXNOW_SITES` as JSON, no config file needed:
 
 ```ts
 import { defineConfig, env } from 'indexnow-relay/config'
@@ -72,12 +72,41 @@ Run it:
 docker run -d --name indexnow-relay \
   -p 3000:3000 \
   --env-file .env \
-  -v "$PWD/relay.config.ts:/app/relay.config.ts:ro" \
-  -v indexnow-relay-data:/app/data \
+  -v indexnow-relay-data:/data \
   ghcr.io/imjlk/indexnow-relay:latest
 ```
 
+Prefer a `relay.config.ts` (per-site tuning, queue settings, scoped tokens)?
+Mount it instead of setting `INDEXNOW_SITES` - providing both is a startup
+error:
+
+```bash
+-v "$PWD/relay.config.ts:/app/relay.config.ts:ro"
+```
+
 Or with [`docker-compose.yml`](docker-compose.yml): `docker compose up -d`.
+
+### Deploy on Coolify
+
+Use [`docker-compose.coolify.yml`](docker-compose.coolify.yml) (Docker
+Compose-based resource, load it from this repository). You provide exactly
+**one** value - `INDEXNOW_SITES` - and mark it as a **Secret** in Coolify's
+Environment Variables:
+
+```
+INDEXNOW_SITES={"www.example.com":"<indexnow-key>"}
+```
+
+(In `.env` files, wrap the JSON in single quotes —
+`INDEXNOW_SITES='{"www.example.com":"<key>"}'` — docker compose otherwise
+strips the inner double quotes. Values set in the Coolify UI need no
+quoting.)
+
+Everything else is generated: the API bearer token comes from Coolify's
+`SERVICE_PASSWORD_64_RELAY`, the public URL from
+`SERVICE_URL_RELAY_8080`, and no host ports are published (the proxy talks
+to the exposed internal port 8080). SQLite persists in the `relay-data`
+volume; health checks use `/health/live`.
 
 > The config file's import path depends on where it runs:
 > `'indexnow-relay/config'` inside containers, `'./src/config/index.ts'`
@@ -120,6 +149,15 @@ Open `http://localhost:3000/` for interactive API docs, and
 `relay.config.ts` is typed by `defineConfig` and validated at runtime with
 typia. Secrets are always environment references created with `env('NAME')`
 (an optional second argument is a fallback default).
+
+Without a config file, set `INDEXNOW_SITES` to the same `sites` object as
+JSON (plus `INDEXNOW_RELAY_TOKEN`); everything else keeps its defaults.
+Providing both a config file and `INDEXNOW_SITES` is a startup error -
+never a silent merge:
+
+```bash
+INDEXNOW_SITES='{"www.example.com":"a1b2c3d4e5f60718293a4b5c6d7e8f9","docs.example.com":{"key":"...","keyPath":"/.well-known/{key}.txt"}}'
+```
 
 ### `auth`
 
@@ -179,7 +217,9 @@ never repeat the host or key.
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `INDEXNOW_RELAY_CONFIG` | `./relay.config.ts` | Config file path |
-| `INDEXNOW_RELAY_DB` | `data/relay.db` (image: `/app/data/relay.db`) | SQLite path |
+| `INDEXNOW_SITES` | - | Sites as JSON (no config file needed); mutually exclusive with a config file |
+| `INDEXNOW_RELAY_TOKEN` | - | Bearer token (required with `INDEXNOW_SITES`) |
+| `INDEXNOW_RELAY_DB` | `data/relay.db` (image: `/data/relay.db`) | SQLite path |
 | `PORT` / `HOST` | `3000` / `0.0.0.0` | HTTP listener |
 | `LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error` |
 | `INDEXNOW_ENDPOINT` | `https://api.indexnow.org/indexnow` | Shared IndexNow endpoint |
@@ -199,7 +239,7 @@ the OpenAPI document (`/openapi.json`, interactive docs at `/`).
 | POST | `/v1/admin/dead-letters/retry` | Requeue dead letters (`{ site?, urls? }`) |
 | POST | `/v1/admin/sites/{host}/pause` | Pause a site (`{ reason? }`) |
 | POST | `/v1/admin/sites/{host}/resume` | Resume a site |
-| GET | `/healthz`, `/readyz` | Liveness / readiness probes |
+| GET | `/health/live`, `/health/ready` | Liveness / readiness probes (`/healthz`, `/readyz` aliases) |
 
 Submission is **all-or-nothing**: if any URL is invalid, any host is not
 configured, or the token lacks access to any host, the whole request fails

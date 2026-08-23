@@ -27,6 +27,7 @@
     "src/**/*.ts",
     "tests/**/*.ts",
     "scripts/**/*.ts",
+    "docker/**/*.ts",
     "relay.config.ts",
     "relay.config.example.ts"
   ]

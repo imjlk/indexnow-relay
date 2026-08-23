@@ -1,0 +1,47 @@
+# Coolify deployment (Magic Environment Variables).
+#
+# The only value you must provide is INDEXNOW_SITES (set it in Coolify's
+# Environment Variables as a Secret):
+#
+#   INDEXNOW_SITES={"www.example.com":"<indexnow-key>","docs.example.com":{"key":"<key>","keyPath":"/.well-known/{key}.txt"}}
+#
+# Coolify generates and persists SERVICE_PASSWORD_64_RELAY (used as the API
+# bearer token) and derives the public URL from SERVICE_URL_RELAY_8080, so
+# no host ports are published - the proxy talks to exposed port 8080.
+services:
+  relay:
+    image: ghcr.io/imjlk/indexnow-relay:latest
+    restart: unless-stopped
+
+    environment:
+      SERVICE_URL_RELAY_8080: /
+
+      INDEXNOW_RELAY_TOKEN: ${SERVICE_PASSWORD_64_RELAY}
+      INDEXNOW_SITES: ${INDEXNOW_SITES:?}
+
+      HOST: 0.0.0.0
+      PORT: 8080
+      INDEXNOW_RELAY_DB: /data/indexnow-relay.sqlite
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+
+    expose:
+      - '8080'
+
+    volumes:
+      - relay-data:/data
+
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'bun',
+          '-e',
+          "fetch('http://127.0.0.1:8080/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  relay-data:
