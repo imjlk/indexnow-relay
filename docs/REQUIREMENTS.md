@@ -20,6 +20,16 @@ the hosts it may touch; `sites: '*'` is unrestricted. Secrets come only from
 environment references or dev-convenience literals, are resolved at load
 time, and the normalized configuration is validated again at runtime.
 
+Environments without a config file (containers, Coolify) configure sites
+through the `INDEXNOW_SITES` environment variable: the same `sites` object
+as JSON (shorthand or advanced form), with `INDEXNOW_RELAY_TOKEN` for auth
+and default values everywhere else. The two sources are mutually exclusive:
+a config file plus `INDEXNOW_SITES` is a startup error (never a silent
+merge), a missing config file plus `INDEXNOW_SITES` uses the environment,
+and neither present is a startup error naming both options. Errors about
+`INDEXNOW_SITES` never echo its contents because the value is secret;
+startup logs list hostnames only.
+
 ## URL submission
 
 `POST /v1/urls` accepts 1–10,000 absolute `http`/`https` URLs across any

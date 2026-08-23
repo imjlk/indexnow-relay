@@ -1,12 +1,17 @@
 import { afterAll, describe, expect, test } from 'bun:test'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 
 import {
+  buildEnvSitesConfig,
   ConfigError,
+  decideConfigSource,
   env,
+  EnvSitesError,
   loadRelayConfig,
   normalizeHostname,
+  resolveConfigPath,
   normalizeRelayConfig,
+  parseEnvSites,
   resolveSecret,
 } from '../src/config/index.ts'
 import type { RelayConfigInput } from '../src/config/index.ts'
@@ -168,5 +173,101 @@ describe('loadRelayConfig (end to end)', () => {
     process.env['INDEXNOW_RELAY_FIXTURE_KEY'] = 'a1b2c3d4e5f60718'
     await expect(loadRelayConfig(fixturePath)).rejects.toThrow(/INDEXNOW_RELAY_FIXTURE_TOKEN/)
     delete process.env['INDEXNOW_RELAY_FIXTURE_KEY']
+  })
+})
+
+describe('INDEXNOW_SITES environment configuration', () => {
+  const SHORTHAND = JSON.stringify({
+    'www.example.com': 'a1b2c3d4e5f60718',
+    'docs.example.com': 'a1b2c3d4e5f60719',
+  })
+
+  test('parses the shorthand and advanced forms', () => {
+    const shorthand = parseEnvSites(SHORTHAND)
+    expect(shorthand['www.example.com']).toBe('a1b2c3d4e5f60718')
+
+    const advanced = parseEnvSites(
+      JSON.stringify({
+        'www.example.com': 'a1b2c3d4e5f60718',
+        'docs.example.com': { key: 'a1b2c3d4e5f60719', keyPath: '/.well-known/{key}.txt', batchSize: 500 },
+      }),
+    )
+    expect(advanced['docs.example.com']).toEqual({
+      key: 'a1b2c3d4e5f60719',
+      keyPath: '/.well-known/{key}.txt',
+      batchSize: 500,
+    })
+  })
+
+  test('rejects invalid JSON without echoing the secret', () => {
+    let message = ''
+    try {
+      parseEnvSites('{"www.example.com": "a1b2c3d4e5f6071')
+    } catch (error) {
+      message = error instanceof Error ? error.message : ''
+    }
+    expect(message).toContain('not valid JSON')
+    expect(message).not.toContain('a1b2c3d4e5f6071')
+  })
+
+  test('rejects wrong shapes without echoing values', () => {
+    let message = ''
+    try {
+      // key must be a string or env reference, not a number
+      parseEnvSites(JSON.stringify({ 'www.example.com': { key: 12345 } }))
+    } catch (error) {
+      message = error instanceof Error ? error.message : ''
+    }
+    expect(message).toContain('invalid value')
+    expect(message).not.toContain('12345')
+
+    expect(() => parseEnvSites(JSON.stringify(['not', 'an', 'object']))).toThrow(EnvSitesError)
+  })
+
+  test('buildEnvSitesConfig yields a normalizable config', () => {
+    const input = buildEnvSitesConfig(SHORTHAND)
+    process.env['INDEXNOW_RELAY_TOKEN'] = 'operator-token-000000000001'
+    const normalized = normalizeRelayConfig(input)
+    expect(Object.keys(normalized.sites).sort()).toEqual(['docs.example.com', 'www.example.com'])
+    expect(normalized.auth.tokens[0]!.value).toBe('operator-token-000000000001')
+    delete process.env['INDEXNOW_RELAY_TOKEN']
+  })
+
+  test('source decision: file, env, conflict, and missing', () => {
+    const base = { resolvedPath: '/x/relay.config.ts', explicit: false, fileExists: true, envSites: undefined }
+    expect(decideConfigSource({ ...base, envSites: undefined }).kind).toBe('file')
+    expect(decideConfigSource({ ...base, fileExists: false, envSites: SHORTHAND }).kind).toBe('env-sites')
+    expect(decideConfigSource({ ...base, envSites: SHORTHAND }).kind).toBe('conflict')
+    expect(decideConfigSource({ ...base, fileExists: false }).kind).toBe('missing')
+    expect(decideConfigSource({ ...base, fileExists: false, explicit: true }).kind).toBe('explicit-missing')
+    // empty string env counts as unset
+    expect(decideConfigSource({ ...base, fileExists: false, envSites: '' }).kind).toBe('missing')
+  })
+
+  test('empty INDEXNOW_RELAY_CONFIG counts as unset (env-sites stays reachable)', async () => {
+    const saved = process.env['INDEXNOW_RELAY_CONFIG']
+    process.env['INDEXNOW_RELAY_CONFIG'] = ''
+    expect(resolveConfigPath()).toBe(resolve('relay.config.ts'))
+    if (saved === undefined) delete process.env['INDEXNOW_RELAY_CONFIG']
+    else process.env['INDEXNOW_RELAY_CONFIG'] = saved
+  })
+
+  test('loadRelayConfig fails on file + INDEXNOW_SITES conflict', async () => {
+    const configPath = join(import.meta.dir, 'fixtures', 'env-config.fixture.ts')
+    process.env['INDEXNOW_SITES'] = SHORTHAND
+    await expect(loadRelayConfig(configPath)).rejects.toThrow(/conflict/i)
+    delete process.env['INDEXNOW_SITES']
+  })
+
+  test('loadRelayConfig fails with both options named when neither is present', async () => {
+    const savedConfig = process.env['INDEXNOW_RELAY_CONFIG']
+    const savedSites = process.env['INDEXNOW_SITES']
+    delete process.env['INDEXNOW_RELAY_CONFIG']
+    delete process.env['INDEXNOW_SITES']
+    await expect(loadRelayConfig(join(import.meta.dir, '.no-such-dir', 'relay.config.ts'))).rejects.toThrow(
+      /INDEXNOW_SITES/,
+    )
+    if (savedConfig !== undefined) process.env['INDEXNOW_RELAY_CONFIG'] = savedConfig
+    if (savedSites !== undefined) process.env['INDEXNOW_SITES'] = savedSites
   })
 })

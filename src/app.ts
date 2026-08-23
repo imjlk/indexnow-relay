@@ -30,7 +30,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<RelayAp
   const app = buildApp(config, { logger: Logger.fromEnv() })
   app.scheduler.start()
   app.logger.info('relay initialized', {
-    sites: Object.keys(config.sites).length,
+    // Hostnames only - never keys or tokens.
+    sites: Object.keys(config.sites),
     database: config.databasePath,
     endpoint: config.indexnowEndpoint,
   })
