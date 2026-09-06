@@ -245,6 +245,42 @@ export class PendingUrlsRepository {
     return row?.n ?? 0
   }
 
+  /**
+   * Queue listing for the admin API: pending and/or dead rows, optionally
+   * filtered by site, oldest due first (pending) / most recent last.
+   */
+  listQueue(
+    siteHost: string | undefined,
+    status: 'pending' | 'dead' | undefined,
+    limit: number,
+  ): PendingUrlRow[] {
+    const clauses: string[] = []
+    const params: Array<string | number> = []
+
+    if (siteHost !== undefined) {
+      clauses.push('site_host = ?')
+      params.push(siteHost)
+    }
+    if (status !== undefined) {
+      clauses.push('status = ?')
+      params.push(status)
+    }
+
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : ''
+    const order =
+      status === 'dead'
+        ? 'ORDER BY last_seen_at DESC'
+        : status === 'pending'
+          ? 'ORDER BY due_at ASC'
+          : "ORDER BY CASE status WHEN 'pending' THEN 0 ELSE 1 END, due_at ASC, last_seen_at DESC"
+
+    return this.#db
+      .query<PendingUrlRow, Array<string | number>>(
+        `SELECT * FROM pending_urls ${where} ${order} LIMIT ?`,
+      )
+      .all(...params, limit)
+  }
+
   listDead(siteHost: string | undefined, limit: number): PendingUrlRow[] {
     if (siteHost === undefined) {
       return this.#db

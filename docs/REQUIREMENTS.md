@@ -96,17 +96,20 @@ and IndexNow keys exist only in normalized in-memory configuration.
 ## Operations API
 
 Unrestricted tokens get: a queue overview (per-site pending/dead counts,
-next due time, batch counters), recent submission batches with outcomes,
-dead-letter listing and requeue, and per-site pause/resume that survives
-restarts. Pausing stops deliveries while still accepting and queueing
-submissions.
+next due time, batch counters), a queue listing with per-URL attempts and
+due times (filterable by site and status), recent submission batches with
+outcomes, dead-letter listing and requeue, and per-site pause/resume that
+survives restarts. Pausing stops deliveries while still accepting and
+queueing submissions.
 
 ## Observability and secret hygiene
 
 `/health/live` reports process liveness and `/health/ready` checks the
 scheduler and the SQLite database (unauthenticated; `/healthz` and `/readyz`
-remain as legacy aliases). Neither probe calls the IndexNow API. Logs are one
-JSON object per line with secret-named fields redacted, and startup logs list
+remain as legacy aliases). Neither probe calls the IndexNow API. `/metrics`
+serves Prometheus text exposition - queue gauges and batch counters by site,
+plus build info - gated behind an unrestricted token. Logs are one JSON
+object per line with secret-named fields redacted, and startup logs list
 site hostnames only.
 Structured request failures and submission outcomes are logged without
 secrets. `/` serves interactive API docs and `/openapi.json` the OpenAPI 3.1

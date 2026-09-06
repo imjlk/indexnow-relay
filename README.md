@@ -234,12 +234,14 @@ the OpenAPI document (`/openapi.json`, interactive docs at `/`).
 | POST | `/v1/urls` | Submit URLs across any number of configured sites |
 | GET | `/v1/receipts/{id}` | Inspect a submission (`stillPending` shows remaining work) |
 | GET | `/v1/admin/overview` | Queue depths and batch counters per site |
+| GET | `/v1/admin/queue?site=&status=` | Queued URLs with attempts and due times |
 | GET | `/v1/admin/batches?site=&limit=` | Recent IndexNow submission attempts |
 | GET | `/v1/admin/dead-letters?site=&limit=` | Dead-lettered URLs |
 | POST | `/v1/admin/dead-letters/retry` | Requeue dead letters (`{ site?, urls? }`) |
 | POST | `/v1/admin/sites/{host}/pause` | Pause a site (`{ reason? }`) |
 | POST | `/v1/admin/sites/{host}/resume` | Resume a site |
 | GET | `/health/live`, `/health/ready` | Liveness / readiness probes (`/healthz`, `/readyz` aliases) |
+| GET | `/metrics` | Prometheus metrics (unrestricted token) |
 
 Submission is **all-or-nothing**: if any URL is invalid, any host is not
 configured, or the token lacks access to any host, the whole request fails

@@ -1,7 +1,7 @@
 {
   "info": {
     "title": "IndexNow Relay API",
-    "version": "0.2.1",
+    "version": "0.2.2",
     "description": "Submit URLs once and let the relay batch, coalesce, retry, and deliver them to IndexNow per site. Authenticate with `Authorization: Bearer <token>`."
   },
   "openapi": "3.1.2",
@@ -580,6 +580,98 @@
           }
         ]
       },
+      "ListQueueInput": {
+        "type": "object",
+        "properties": {
+          "site": {
+            "type": "string"
+          },
+          "status": {
+            "oneOf": [
+              {
+                "const": "dead"
+              },
+              {
+                "const": "pending"
+              }
+            ]
+          },
+          "limit": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 500
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "ListQueueOutput": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/AdminQueueItem"
+        }
+      },
+      "AdminQueueItem": {
+        "type": "object",
+        "properties": {
+          "site": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/QueueItemStatus"
+          },
+          "attempts": {
+            "type": "number"
+          },
+          "dueAt": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "When the relay will next try this URL; null for dead letters."
+          },
+          "lastSeenAt": {
+            "type": "string"
+          },
+          "lastError": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          }
+        },
+        "required": [
+          "site",
+          "url",
+          "status",
+          "attempts",
+          "dueAt",
+          "lastSeenAt",
+          "lastError"
+        ],
+        "additionalProperties": false
+      },
+      "QueueItemStatus": {
+        "oneOf": [
+          {
+            "const": "dead"
+          },
+          {
+            "const": "pending"
+          }
+        ]
+      },
       "ListDeadLettersInput": {
         "type": "object",
         "properties": {
@@ -1100,6 +1192,102 @@
                   "type": "array",
                   "items": {
                     "$ref": "#/components/schemas/AdminBatchRecord"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/Unauthorized"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UndefinedError"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Requires an unrestricted token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/Forbidden"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UndefinedError"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/queue": {
+      "get": {
+        "operationId": "admin.listQueue",
+        "summary": "List queued URLs (pending and dead)",
+        "tags": [
+          "admin"
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "site",
+            "schema": {
+              "type": "string"
+            },
+            "allowEmptyValue": true,
+            "allowReserved": true
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "oneOf": [
+                {
+                  "const": "dead"
+                },
+                {
+                  "const": "pending"
+                }
+              ]
+            },
+            "allowEmptyValue": true,
+            "allowReserved": true
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "allowEmptyValue": true,
+            "allowReserved": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AdminQueueItem"
                   }
                 }
               }

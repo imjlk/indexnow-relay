@@ -1,3 +1,4 @@
+import { SmartCoercionHandlerPlugin } from '@orpc/json-schema'
 import { OpenAPIHandler } from '@orpc/openapi/fetch'
 import { OpenAPIReferenceHandlerPlugin } from '@orpc/openapi/plugins'
 
@@ -18,7 +19,9 @@ import { SubmissionStateRepository } from './db/repositories/submission-state.re
 import { IndexNowClient, type FetchLike } from './indexnow/client.ts'
 import { Scheduler } from './queue/scheduler.ts'
 import { Logger } from './observability/logger.ts'
+import { authenticateAdmin } from './api/auth.middleware.ts'
 import { livenessResponse, readinessResponse } from './observability/health.ts'
+import { metricsResponse, statusForErrorCode } from './observability/metrics.ts'
 import { APP_NAME, APP_VERSION, USER_AGENT } from './version.ts'
 
 export interface CreateAppOptions {
@@ -95,6 +98,9 @@ export function buildApp(config: NormalizedRelayConfig, options: BuildAppOptions
   const handler = new OpenAPIHandler<ApiContext>(router, {
     errorStatusMap: ERROR_STATUS_MAP,
     plugins: [
+      // Query/param strings coerce to the typed input schema before
+      // validation (e.g. ?limit=10 -> number).
+      new SmartCoercionHandlerPlugin(),
       new OpenAPIReferenceHandlerPlugin({
         spec: async () => await buildOpenApiDocument(router),
         specPath: '/openapi.json',
@@ -107,12 +113,28 @@ export function buildApp(config: NormalizedRelayConfig, options: BuildAppOptions
   return { config, registry, logger, db, enqueue, pendingUrls, submissionState, receipts, batches, siteState, scheduler, handler }
 }
 
+const jsonResponse = (status: number, body: Record<string, unknown>): Response =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { 'content-type': 'application/json; charset=utf-8' },
+  })
+
 /** Routes one HTTP request: health probes first, then the oRPC handler. */
 export async function routeRequest(app: RelayApp, request: Request): Promise<Response> {
   const { pathname } = new URL(request.url)
 
   if (pathname === '/health/live' || pathname === '/healthz') return livenessResponse()
   if (pathname === '/health/ready' || pathname === '/readyz') return await readinessResponse(app)
+
+  if (pathname === '/metrics') {
+    try {
+      authenticateAdmin({ request, app })
+    } catch (error) {
+      const code = (error as { code?: string }).code ?? 'UNAUTHORIZED'
+      return jsonResponse(statusForErrorCode(code), { code, message: 'Admin token required.' })
+    }
+    return metricsResponse(app)
+  }
 
   try {
     const result = await app.handler.handle(request, { context: { request, app } })
