@@ -1,5 +1,17 @@
 # indexnow-relay
 
+## 0.4.0 — 2026-09-06
+
+### Added
+
+- [3d5d9cb](https://github.com/imjlk/indexnow-relay/commit/3d5d9cb6f33a7cfc179bbab9e8a88b168b6cfa80) Dead-letter webhook notifications: when URLs become dead letters (permanent
+  IndexNow failure or exhausted retries) the relay fires one webhook so the
+  failure surfaces immediately. Configure via `notifications.webhookUrl` in
+  relay.config.ts or the `INDEXNOW_WEBHOOK_URL` environment variable; unset
+  disables it. Payloads adapt to Slack, Discord, or generic JSON webhooks
+  (auto-detected from the URL host, overridable with `format`), carry no
+  secrets, and delivery is fire-and-forget with bounded retries. — Thanks @imjlk!
+
 ## 0.3.0 — 2026-09-06
 
 ### Added
