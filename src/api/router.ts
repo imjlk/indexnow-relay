@@ -4,6 +4,7 @@ import { authenticate, authenticateAdmin } from './auth.middleware.ts'
 import type { ApiContext, RelayApp } from './context.ts'
 import { domainError } from '../core/errors.ts'
 import { tokenAllowsSite } from '../core/site.ts'
+import { fetchSitemapUrls, SitemapError } from '../core/sitemap.ts'
 import {
   adminListBatchesContract,
   adminListDeadLettersContract,
@@ -14,6 +15,7 @@ import {
   adminRetryDeadLettersContract,
 } from './contracts/admin.contract.ts'
 import { getReceiptContract } from './contracts/receipt.contract.ts'
+import { submitSitemapContract } from './contracts/sitemap.contract.ts'
 import { submitUrlsContract } from './contracts/submit-urls.contract.ts'
 import type {
   AdminBatchRecord,
@@ -33,6 +35,22 @@ export function createRouter(app: RelayApp) {
     submitUrls: implement(submitUrlsContract).$context<ApiContext>().handler(async ({ input, context }) => {
       const token = authenticate(context)
       return app.enqueue.submit(token, input.urls, input.event)
+    }),
+
+    submitSitemap: implement(submitSitemapContract).$context<ApiContext>().handler(async ({ input, context }) => {
+      const token = authenticate(context)
+
+      let urls: string[]
+      try {
+        urls = await fetchSitemapUrls(input.url, { fetchImpl: context.app.sitemapFetch })
+      } catch (error) {
+        if (error instanceof SitemapError) {
+          throw domainError(error.code, error.message, error.detail)
+        }
+        throw error
+      }
+
+      return app.enqueue.submit(token, urls, 'updated')
     }),
 
     getReceipt: implement(getReceiptContract).$context<ApiContext>().handler(async ({ input, context }): Promise<GetReceiptOutput> => {

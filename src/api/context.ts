@@ -9,6 +9,7 @@ import type { ReceiptsRepository } from '../db/repositories/receipts.repo.ts'
 import type { SubmissionBatchesRepository } from '../db/repositories/batches.repo.ts'
 import type { SiteStateRepository } from '../db/repositories/site-state.repo.ts'
 import type { Scheduler } from '../queue/scheduler.ts'
+import type { FetchLike } from '../indexnow/client.ts'
 import type { Logger } from '../observability/logger.ts'
 import type { OpenAPIHandler } from '@orpc/openapi/fetch'
 
@@ -26,6 +27,8 @@ export interface RelayApp {
   siteState: SiteStateRepository
   scheduler: Scheduler
   handler: OpenAPIHandler<ApiContext>
+  /** Outbound fetch used for sitemap ingestion (injectable for tests). */
+  sitemapFetch: FetchLike
 }
 
 /** Per-request context handed to oRPC handlers. */

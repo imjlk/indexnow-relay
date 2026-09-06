@@ -11,6 +11,9 @@ export const ERROR_STATUS_MAP: Record<string, number> = {
   FORBIDDEN_SITE: 403,
   INVALID_URL: 400,
   UNKNOWN_SITE: 400,
+  SITEMAP_FETCH_FAILED: 502,
+  SITEMAP_INVALID: 400,
+  SITEMAP_TOO_LARGE: 413,
 }
 
 /** Builds the canonical OpenAPI document for this router. */

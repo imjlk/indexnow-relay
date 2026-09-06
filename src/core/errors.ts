@@ -11,6 +11,9 @@ export type DomainErrorCode =
   | 'INVALID_URL'
   | 'UNKNOWN_SITE'
   | 'NOT_FOUND'
+  | 'SITEMAP_FETCH_FAILED'
+  | 'SITEMAP_INVALID'
+  | 'SITEMAP_TOO_LARGE'
 
 export type DomainError = ORPCError<string, unknown>
 

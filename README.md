@@ -232,6 +232,7 @@ the OpenAPI document (`/openapi.json`, interactive docs at `/`).
 | Method | Path | Purpose |
 | --- | --- | --- |
 | POST | `/v1/urls` | Submit URLs across any number of configured sites |
+| POST | `/v1/sitemap` | Bulk-submit every URL from a remote sitemap / sitemap index |
 | GET | `/v1/receipts/{id}` | Inspect a submission (`stillPending` shows remaining work) |
 | GET | `/v1/admin/overview` | Queue depths and batch counters per site |
 | GET | `/v1/admin/queue?site=&status=` | Queued URLs with attempts and due times |
@@ -242,6 +243,20 @@ the OpenAPI document (`/openapi.json`, interactive docs at `/`).
 | POST | `/v1/admin/sites/{host}/resume` | Resume a site |
 | GET | `/health/live`, `/health/ready` | Liveness / readiness probes (`/healthz`, `/readyz` aliases) |
 | GET | `/metrics` | Prometheus metrics (unrestricted token) |
+
+### Sitemap ingestion
+
+Bulk resubmission (site migrations, mass updates) goes through
+`POST /v1/sitemap` - point the relay at a sitemap and it fetches, parses
+(`<loc>` extraction incl. sitemap indexes, caps at 10,000 URLs), and submits
+through the same all-or-nothing pipeline with one receipt:
+
+```bash
+curl -X POST http://localhost:3000/v1/sitemap \
+  -H "Authorization: Bearer $INDEXNOW_RELAY_TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{"url":"https://www.example.com/sitemap.xml"}'
+```
 
 Submission is **all-or-nothing**: if any URL is invalid, any host is not
 configured, or the token lacks access to any host, the whole request fails

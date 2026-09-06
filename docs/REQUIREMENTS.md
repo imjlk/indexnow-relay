@@ -65,6 +65,19 @@ succeed (`202` means key validation is still pending and is recorded as
 such), `429`/`5xx`/network failures retry, all other `4xx` answers fail
 permanently.
 
+## Sitemap ingestion
+
+`POST /v1/sitemap` accepts the absolute http(s) URL of a remote sitemap or
+sitemap index. The relay fetches it server-side (timeout, per-document and
+total byte caps, document and URL-count caps), extracts every `<loc>` with
+XML entity and CDATA decoding, follows sitemap indexes breadth-first up to a
+bounded depth, and feeds the resulting URLs into the exact same submission
+pipeline as `POST /v1/urls` - all-or-nothing validation, automatic host
+grouping, coalescing, and one receipt. A sitemap containing any
+unconfigured or unauthorized host rejects the whole request; no partial
+ingestion. Fetch failures, unusable documents, and cap overruns are distinct
+errors (502 / 400 / 413).
+
 ## Persistent queue and recovery
 
 All queue state lives in SQLite (`pending_urls` keyed by `(site_host, url)`,

@@ -63,6 +63,8 @@ export function buildApp(config: NormalizedRelayConfig, options: BuildAppOptions
   const receipts = new ReceiptsRepository(db)
   const siteState = new SiteStateRepository(db)
 
+  const sitemapFetch: FetchLike = options.fetchImpl ?? ((input, init) => fetch(input, init))
+
   const registry = new SiteRegistry(config)
   const client = new IndexNowClient({
     endpoint: config.indexnowEndpoint,
@@ -94,7 +96,7 @@ export function buildApp(config: NormalizedRelayConfig, options: BuildAppOptions
   })
   enqueue.onEnqueued(() => scheduler.wake())
 
-  const router = createRouter({ config, registry, logger, db, enqueue, pendingUrls, submissionState, receipts, batches, siteState, scheduler } as RelayApp)
+  const router = createRouter({ config, registry, logger, db, enqueue, pendingUrls, submissionState, receipts, batches, siteState, scheduler, sitemapFetch } as RelayApp)
   const handler = new OpenAPIHandler<ApiContext>(router, {
     errorStatusMap: ERROR_STATUS_MAP,
     plugins: [
@@ -110,7 +112,21 @@ export function buildApp(config: NormalizedRelayConfig, options: BuildAppOptions
     ],
   })
 
-  return { config, registry, logger, db, enqueue, pendingUrls, submissionState, receipts, batches, siteState, scheduler, handler }
+  return {
+    config,
+    registry,
+    logger,
+    db,
+    enqueue,
+    pendingUrls,
+    submissionState,
+    receipts,
+    batches,
+    siteState,
+    scheduler,
+    handler,
+    sitemapFetch,
+  }
 }
 
 const jsonResponse = (status: number, body: Record<string, unknown>): Response =>
