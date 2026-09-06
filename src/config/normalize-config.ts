@@ -163,6 +163,10 @@ export function normalizeRelayConfig(input: RelayConfigInput): NormalizedRelayCo
 
   const tokens = normalizeAuth(input.auth, sites)
 
+  const webhookFromConfig =
+    input.notifications?.webhookUrl === undefined ? undefined : resolveSecret(input.notifications.webhookUrl, 'notifications.webhookUrl')
+  const webhookUrl = webhookFromConfig ?? process.env['INDEXNOW_WEBHOOK_URL'] ?? null
+
   const databasePath = input.database?.path ?? process.env['INDEXNOW_RELAY_DB'] ?? 'data/relay.db'
   const host = process.env['HOST'] ?? input.server?.host ?? '0.0.0.0'
   const port = Number(process.env['PORT'] ?? input.server?.port ?? 3000)
@@ -177,6 +181,7 @@ export function normalizeRelayConfig(input: RelayConfigInput): NormalizedRelayCo
     auth: { tokens },
     sites,
     queue,
+    notifications: { webhookUrl, format: input.notifications?.format ?? 'auto' },
     databasePath,
     server: { host, port },
     indexnowEndpoint,

@@ -9,6 +9,7 @@ import type { SiteStateRepository } from '../db/repositories/site-state.repo.ts'
 import type { SiteRegistry } from '../core/site.ts'
 import type { IndexNowClient } from '../indexnow/client.ts'
 import type { Logger } from '../observability/logger.ts'
+import type { WebhookNotifier } from '../observability/notifier.ts'
 import { recoverFromCrash } from './recovery.ts'
 import { drainSite } from './worker.ts'
 
@@ -23,6 +24,7 @@ export interface SchedulerDeps {
   siteState: SiteStateRepository
   client: IndexNowClient
   logger: Logger
+  notifier: WebhookNotifier
 }
 
 const RETENTION_INTERVAL_MS = 60 * 60 * 1000
@@ -98,6 +100,7 @@ export class Scheduler {
       queue: this.#deps.config.queue,
       client: this.#deps.client,
       logger: this.#deps.logger,
+      notifier: this.#deps.notifier,
     }, () => this.#stopped)
   }
 

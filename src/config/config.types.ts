@@ -62,6 +62,25 @@ export interface QueueConfigInput {
   retentionDays?: number & tags.Minimum<1>
 }
 
+export type WebhookFormat = 'auto' | 'generic' | 'slack' | 'discord'
+
+export interface NotificationsConfigInput {
+  /** Webhook that receives dead-letter notifications. */
+  webhookUrl?: SecretValue
+  /**
+   * Payload dialect: `generic` JSON, `slack` ({"text"}), `discord`
+   * ({"content"}). `auto` detects Slack/Discord from the URL host and
+   * falls back to `generic`. Default: `auto`.
+   */
+  format?: WebhookFormat
+}
+
+export interface NormalizedNotificationsConfig {
+  /** Resolved webhook URL, or null when notifications are disabled. */
+  webhookUrl: string | null
+  format: WebhookFormat
+}
+
 export interface RelayConfigInput {
   /**
    * Single token (`SecretValue`) or scoped tokens
@@ -72,6 +91,7 @@ export interface RelayConfigInput {
   sites: Record<string, SiteConfigInput>
   defaults?: SiteDefaults
   queue?: QueueConfigInput
+  notifications?: NotificationsConfigInput
   database?: { path?: string }
   server?: { host?: string; port?: number & tags.Minimum<1> & tags.Maximum<65_535> }
   indexnow?: { endpoint?: string }
@@ -114,6 +134,7 @@ export interface NormalizedRelayConfig {
   auth: { tokens: NormalizedToken[] }
   sites: Record<string, NormalizedSite>
   queue: NormalizedQueueConfig
+  notifications: NormalizedNotificationsConfig
   databasePath: string
   server: { host: string; port: number }
   indexnowEndpoint: string
