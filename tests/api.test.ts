@@ -3,7 +3,7 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import { closeApp, routeRequest } from '../src/app.ts'
 import type { RelayApp } from '../src/api/context.ts'
 import type { FetchLike } from '../src/indexnow/client.ts'
-import { ADMIN_TOKEN, BLOG_TOKEN, WWW_HOST, createTestApp, readJson } from './helpers/app.ts'
+import { ADMIN_TOKEN, BLOG_TOKEN, WWW_HOST, createTestApp, postJson, readJson } from './helpers/app.ts'
 
 const apps: RelayApp[] = []
 
@@ -285,5 +285,86 @@ describe('health and docs', () => {
     expect(response.status).toBe(404)
     const body = await readJson(response)
     expect(body['code']).toBe('NOT_FOUND')
+  })
+})
+
+describe('metrics and queue inspection', () => {
+  test('/metrics requires an admin token and serves Prometheus text', async () => {
+    const a = track(createTestApp({ fetchImpl: neverCalledFetch() }))
+
+    const anon = await routeRequest(a, new Request(`${BASE}/metrics`))
+    expect(anon.status).toBe(401)
+
+    const scoped = await routeRequest(
+      a,
+      new Request(`${BASE}/metrics`, { headers: { authorization: `Bearer ${BLOG_TOKEN}` } }),
+    )
+    expect(scoped.status).toBe(403)
+
+    const admin = await routeRequest(
+      a,
+      new Request(`${BASE}/metrics`, { headers: { authorization: `Bearer ${ADMIN_TOKEN}` } }),
+    )
+    expect(admin.status).toBe(200)
+    expect(admin.headers.get('content-type')).toContain('text/plain')
+    const body = await admin.text()
+    expect(body).toContain('indexnow_relay_up 1')
+    expect(body).toContain('indexnow_relay_build_info{version=')
+    expect(body).toContain('# TYPE indexnow_relay_queue_urls gauge')
+  })
+
+  test('/metrics reflects queued work after a submission', async () => {
+    const a = track(createTestApp({ fetchImpl: neverCalledFetch(), queue: { batchWindowMs: 600_000, maxCoalesceDelayMs: 700_000 } }))
+
+    await routeRequest(
+      a,
+      postJson(`${BASE}/v1/urls`, { urls: [`https://${WWW_HOST}/metrics-probe`] }, ADMIN_TOKEN),
+    )
+
+    const admin = await routeRequest(
+      a,
+      new Request(`${BASE}/metrics`, { headers: { authorization: `Bearer ${ADMIN_TOKEN}` } }),
+    )
+    const body = await admin.text()
+    expect(body).toContain(`indexnow_relay_queue_urls{site="${WWW_HOST}",status="pending"} 1`)
+    expect(body).toContain('indexnow_relay_queue_next_due_timestamp_seconds{')
+  })
+
+  test('GET /v1/admin/queue lists queued URLs with filters', async () => {
+    const a = track(createTestApp({ fetchImpl: neverCalledFetch(), queue: { batchWindowMs: 600_000, maxCoalesceDelayMs: 700_000 } }))
+
+    await routeRequest(
+      a,
+      postJson(
+        `${BASE}/v1/urls`,
+        { urls: [`https://${WWW_HOST}/queue-a`, `https://${WWW_HOST}/queue-b`, `https://blog.example.com/queue-c`] },
+        ADMIN_TOKEN,
+      ),
+    )
+
+    const all = await routeRequest(
+      a,
+      new Request(`${BASE}/v1/admin/queue?limit=10`, { headers: { authorization: `Bearer ${ADMIN_TOKEN}` } }),
+    )
+    expect(all.status).toBe(200)
+    const items = (await readJson(all)) as unknown as Array<{ site: string; url: string; status: string; dueAt: string | null }>
+    expect(items).toHaveLength(3)
+
+    const filtered = await routeRequest(
+      a,
+      new Request(`${BASE}/v1/admin/queue?site=${WWW_HOST}&status=pending`, {
+        headers: { authorization: `Bearer ${ADMIN_TOKEN}` },
+      }),
+    )
+    const filteredItems = (await readJson(filtered)) as unknown as Array<{ site: string; dueAt: string | null }>
+    expect(filteredItems).toHaveLength(2)
+    expect(filteredItems[0]!.dueAt).not.toBeNull()
+    expect(filteredItems.every((item) => item.site === WWW_HOST)).toBe(true)
+
+    const scoped = await routeRequest(
+      a,
+      new Request(`${BASE}/v1/admin/queue`, { headers: { authorization: `Bearer ${BLOG_TOKEN}` } }),
+    )
+    expect(scoped.status).toBe(403)
   })
 })

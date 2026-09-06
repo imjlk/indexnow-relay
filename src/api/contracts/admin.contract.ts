@@ -3,6 +3,8 @@ import { openapi } from '@orpc/openapi'
 
 import {
   AdminOverviewOutputSchema,
+  ListQueueInputSchema,
+  ListQueueOutputSchema,
   ListBatchesInputSchema,
   ListBatchesOutputSchema,
   ListDeadLettersInputSchema,
@@ -54,6 +56,26 @@ export const adminListBatchesContract = oc
  * @evidence GET:/v1/admin/dead-letters Declares this operation's route,
  *           schemas, and error codes.
  */
+/**
+ * @evidence GET:/v1/admin/queue Declares this operation's route, schemas,
+ *           and error codes.
+ */
+export const adminListQueueContract = oc
+  .meta(
+    openapi({
+      method: 'GET',
+      path: '/v1/admin/queue',
+      tags: ['admin'],
+      summary: 'List queued URLs (pending and dead)',
+    }),
+  )
+  .input(ListQueueInputSchema)
+  .output(ListQueueOutputSchema)
+  .errors({
+    UNAUTHORIZED: { message: 'Missing or invalid bearer token.' },
+    FORBIDDEN: { message: 'Requires an unrestricted token.' },
+  })
+
 export const adminListDeadLettersContract = oc
   .meta(
     openapi({

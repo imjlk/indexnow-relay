@@ -7,6 +7,7 @@ import { tokenAllowsSite } from '../core/site.ts'
 import {
   adminListBatchesContract,
   adminListDeadLettersContract,
+  adminListQueueContract,
   adminOverviewContract,
   adminPauseSiteContract,
   adminResumeSiteContract,
@@ -17,6 +18,7 @@ import { submitUrlsContract } from './contracts/submit-urls.contract.ts'
 import type {
   AdminBatchRecord,
   AdminDeadLetterRecord,
+  AdminQueueItem,
   AdminOverviewOutput,
   AdminSiteStatus,
 } from './schemas/admin.ts'
@@ -120,6 +122,22 @@ export function createRouter(app: RelayApp) {
             httpStatus: row.http_status,
             errorCode: row.error_code,
             errorMessage: row.error_message,
+          }))
+        },
+      ),
+
+      listQueue: implement(adminListQueueContract).$context<ApiContext>().handler(
+        async ({ input, context }): Promise<AdminQueueItem[]> => {
+          authenticateAdmin(context)
+          const rows = app.pendingUrls.listQueue(input.site, input.status, input.limit ?? 50)
+          return rows.map((row) => ({
+            site: row.site_host,
+            url: row.url,
+            status: row.status,
+            attempts: row.attempts,
+            dueAt: row.status === 'pending' ? new Date(row.due_at).toISOString() : null,
+            lastSeenAt: new Date(row.last_seen_at).toISOString(),
+            lastError: row.last_error,
           }))
         },
       ),

@@ -124,8 +124,43 @@ export interface SiteActionOutput {
 }
 
 // ---------------------------------------------------------------------------
+// GET /v1/admin/queue
+// ---------------------------------------------------------------------------
+
+export type QueueItemStatus = 'pending' | 'dead'
+
+export interface ListQueueInput {
+  site?: string
+  status?: QueueItemStatus
+  limit?: number & tags.Minimum<1> & tags.Maximum<500>
+}
+
+export interface AdminQueueItem {
+  site: string
+  url: string
+  status: QueueItemStatus
+  attempts: number
+  /** When the relay will next try this URL; null for dead letters. */
+  dueAt: string | null
+  lastSeenAt: string
+  lastError: string | null
+}
+
+export type ListQueueOutput = AdminQueueItem[]
+
+// ---------------------------------------------------------------------------
 // Derived schemas
 // ---------------------------------------------------------------------------
+
+export const ListQueueInputSchema = defineTypiaSchema({
+  validator: typia.createValidateEquals<ListQueueInput>(),
+  unit31: typia.json.schema<ListQueueInput, '3.1'>(),
+})
+
+export const ListQueueOutputSchema = defineTypiaSchema({
+  validator: typia.createValidateEquals<ListQueueOutput>(),
+  unit31: typia.json.schema<ListQueueOutput, '3.1'>(),
+})
 
 export const AdminOverviewOutputSchema = defineTypiaSchema({
   validator: typia.createValidateEquals<AdminOverviewOutput>(),
