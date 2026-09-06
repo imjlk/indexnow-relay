@@ -1,5 +1,14 @@
 # indexnow-relay
 
+## 0.2.2 — 2026-09-06
+
+### Changed
+
+- [369d71e](https://github.com/imjlk/indexnow-relay/commit/369d71e1fc24c1748377f69932bb74932c12ebef) Dependency updates: typia 14.0.5, ttsc toolchain (@ttsc/lint,
+  @ttsc/evidence, @ttsc/unplugin, ttsc) 0.29.0, @types/bun 1.4.1. No API
+  or behavior change; the full gate suite (types, lint + evidence, tests,
+  build, image build) passes on the new versions. — Thanks @imjlk!
+
 ## 0.2.1 — 2026-08-23
 
 ### Fixed
