@@ -19,6 +19,8 @@ export const BLOG_KEY = 'b1b2c3d4e5f60719'
 
 export interface TestAppOptions {
   fetchImpl?: FetchLike
+  webhookFetch?: FetchLike
+  webhookUrl?: string
   queue?: Partial<QueueConfigInput>
 }
 
@@ -42,6 +44,7 @@ export function createTestApp(options: TestAppOptions = {}): RelayApp {
       [BLOG_HOST]: { key: BLOG_KEY, keyPath: '/.well-known/{key}.txt', batchSize: 2 },
     },
     database: { path: join(dir, 'relay.db') },
+    ...(options.webhookUrl === undefined ? {} : { notifications: { webhookUrl: options.webhookUrl } }),
     queue: {
       pollIntervalMs: 20,
       batchWindowMs: 0,
@@ -56,6 +59,7 @@ export function createTestApp(options: TestAppOptions = {}): RelayApp {
 
   return buildApp(config, {
     fetchImpl: options.fetchImpl,
+    ...(options.webhookFetch === undefined ? {} : { webhookFetch: options.webhookFetch }),
     logger: new Logger('error'),
   })
 }

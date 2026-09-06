@@ -8,6 +8,7 @@ import type { IndexNowClient } from '../indexnow/client.ts'
 import { buildPayload } from '../indexnow/payload.ts'
 import { classifySubmitResult } from '../indexnow/response-policy.ts'
 import type { Logger } from '../observability/logger.ts'
+import type { WebhookNotifier } from '../observability/notifier.ts'
 import { createUlid } from '../core/ulid.ts'
 import { createLeaseId, leaseUntil } from './lease.ts'
 import { retryDelayMs } from './retry-policy.ts'
@@ -20,6 +21,7 @@ export interface QueueWorkerDeps {
   queue: NormalizedQueueConfig
   client: IndexNowClient
   logger: Logger
+  notifier: WebhookNotifier
 }
 
 export interface DrainResult {
@@ -101,6 +103,15 @@ export async function drainSite(
         errorMessage,
         deps.queue.maxAttempts,
       )
+      if (dead > 0) {
+        deps.notifier.notifyDeadLetters({
+          site: site.host,
+          batchId,
+          deadUrls: dead,
+          reason: outcome.reason,
+          httpStatus: outcome.httpStatus,
+        })
+      }
       deps.batches.markRetry(batchId, retryAt, outcome.httpStatus, errorMessage, Date.now())
       result.batchesRetried += 1
       if (dead > 0) result.batchesDead += 1
@@ -115,6 +126,13 @@ export async function drainSite(
       })
     } else {
       const dead = deps.pendingUrls.deadLeased(site.host, leaseId, Date.now(), errorMessage)
+      deps.notifier.notifyDeadLetters({
+        site: site.host,
+        batchId,
+        deadUrls: dead,
+        reason: outcome.reason,
+        httpStatus: outcome.httpStatus,
+      })
       deps.batches.markDead(batchId, outcome.httpStatus, errorMessage, Date.now())
       result.batchesDead += 1
       deps.logger.error('indexnow batch failed permanently; URLs moved to dead letters', {

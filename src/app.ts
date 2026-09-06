@@ -19,6 +19,7 @@ import { SubmissionStateRepository } from './db/repositories/submission-state.re
 import { IndexNowClient, type FetchLike } from './indexnow/client.ts'
 import { Scheduler } from './queue/scheduler.ts'
 import { Logger } from './observability/logger.ts'
+import { WebhookNotifier } from './observability/notifier.ts'
 import { authenticateAdmin } from './api/auth.middleware.ts'
 import { livenessResponse, readinessResponse } from './observability/health.ts'
 import { metricsResponse, statusForErrorCode } from './observability/metrics.ts'
@@ -45,6 +46,8 @@ export interface BuildAppOptions {
   logger?: Logger
   /** Injectable for tests; defaults to global fetch. */
   fetchImpl?: FetchLike
+  /** Outbound fetch for webhook notifications (tests). */
+  webhookFetch?: FetchLike
 }
 
 /**
@@ -64,6 +67,13 @@ export function buildApp(config: NormalizedRelayConfig, options: BuildAppOptions
   const siteState = new SiteStateRepository(db)
 
   const sitemapFetch: FetchLike = options.fetchImpl ?? ((input, init) => fetch(input, init))
+
+  const notifier = new WebhookNotifier({
+    webhookUrl: config.notifications.webhookUrl,
+    format: config.notifications.format,
+    logger,
+    ...(options.webhookFetch === undefined ? {} : { fetchImpl: options.webhookFetch }),
+  })
 
   const registry = new SiteRegistry(config)
   const client = new IndexNowClient({
@@ -93,10 +103,11 @@ export function buildApp(config: NormalizedRelayConfig, options: BuildAppOptions
     siteState,
     client,
     logger,
+    notifier,
   })
   enqueue.onEnqueued(() => scheduler.wake())
 
-  const router = createRouter({ config, registry, logger, db, enqueue, pendingUrls, submissionState, receipts, batches, siteState, scheduler, sitemapFetch } as RelayApp)
+  const router = createRouter({ config, registry, logger, db, enqueue, pendingUrls, submissionState, receipts, batches, siteState, scheduler, sitemapFetch, notifier } as RelayApp)
   const handler = new OpenAPIHandler<ApiContext>(router, {
     errorStatusMap: ERROR_STATUS_MAP,
     plugins: [
@@ -126,6 +137,7 @@ export function buildApp(config: NormalizedRelayConfig, options: BuildAppOptions
     scheduler,
     handler,
     sitemapFetch,
+    notifier,
   }
 }
 

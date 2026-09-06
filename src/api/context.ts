@@ -11,6 +11,7 @@ import type { SiteStateRepository } from '../db/repositories/site-state.repo.ts'
 import type { Scheduler } from '../queue/scheduler.ts'
 import type { FetchLike } from '../indexnow/client.ts'
 import type { Logger } from '../observability/logger.ts'
+import type { WebhookNotifier } from '../observability/notifier.ts'
 import type { OpenAPIHandler } from '@orpc/openapi/fetch'
 
 /** Everything a procedure handler needs, built once per process. */
@@ -29,6 +30,8 @@ export interface RelayApp {
   handler: OpenAPIHandler<ApiContext>
   /** Outbound fetch used for sitemap ingestion (injectable for tests). */
   sitemapFetch: FetchLike
+  /** Dead-letter webhook notifications (disabled when no URL is set). */
+  notifier: WebhookNotifier
 }
 
 /** Per-request context handed to oRPC handlers. */

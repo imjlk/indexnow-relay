@@ -128,6 +128,20 @@ Structured request failures and submission outcomes are logged without
 secrets. `/` serves interactive API docs and `/openapi.json` the OpenAPI 3.1
 document.
 
+## Notifications
+
+When URLs become dead letters - a permanent IndexNow failure (invalid key,
+rejected batch) or exhausted retry attempts - the relay fires one webhook
+notification so the failure surfaces immediately instead of days later. The
+webhook URL comes from `notifications.webhookUrl` in the config or the
+`INDEXNOW_WEBHOOK_URL` environment variable; unset means disabled. Payloads
+are dialect-adaptive (`generic` JSON, Slack `{"text"}`, Discord
+`{"content"}`, auto-detected from the URL host with a config override), carry
+counts/reasons/identifiers only - never secrets and never the affected URLs
+(those stay behind the admin API) - and delivery is fire-and-forget with
+bounded retries: it never blocks the queue and its failure is logged, not
+raised.
+
 ## Toolchain contract
 
 TypeScript interfaces are the single source of truth for API DTOs. All

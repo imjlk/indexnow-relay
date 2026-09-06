@@ -198,6 +198,23 @@ sites: {
 `keyLocation` is derived: `https://<host><keyPath with {key} replaced>` — you
 never repeat the host or key.
 
+### `notifications` (optional)
+
+Dead-letter webhook notifications - get called the moment URLs become dead
+letters instead of finding out days later:
+
+```ts
+notifications: {
+  webhookUrl: env('INDEXNOW_WEBHOOK_URL'), // or set the env var directly
+  // format: 'auto' (default) | 'generic' | 'slack' | 'discord'
+}
+```
+
+`auto` detects Slack (`hooks.slack.com`) and Discord webhook URLs and sends
+the right payload shape; anything else gets a generic JSON payload
+(`{ event, site, batchId, deadUrls, reason, httpStatus, occurredAt }`).
+Delivery is fire-and-forget with bounded retries and never blocks the queue.
+
 ### `queue` (all optional, defaults shown)
 
 | Option | Default | Meaning |
@@ -222,6 +239,7 @@ never repeat the host or key.
 | `INDEXNOW_RELAY_DB` | `data/relay.db` (image: `/data/relay.db`) | SQLite path |
 | `PORT` / `HOST` | `3000` / `0.0.0.0` | HTTP listener |
 | `LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error` |
+| `INDEXNOW_WEBHOOK_URL` | - | Webhook for dead-letter notifications |
 | `INDEXNOW_ENDPOINT` | `https://api.indexnow.org/indexnow` | Shared IndexNow endpoint |
 
 ## API
