@@ -1,5 +1,25 @@
 # indexnow-relay
 
+## 0.3.0 — 2026-09-06
+
+### Added
+
+- [dd84546](https://github.com/imjlk/indexnow-relay/commit/dd845461e8cb1759411047026894b3c19cc29438) Bulk ingestion via `POST /v1/sitemap`: point the relay at a sitemap or
+  sitemap index and it fetches server-side (timeouts, byte/document/URL
+  caps), extracts every `<loc>` (entity + CDATA aware, follows indexes
+  breadth-first), and submits through the same all-or-nothing pipeline as
+  `POST /v1/urls` with one receipt. Fetch failures, unusable documents,
+  and cap overruns map to 502 / 400 / 413. — Thanks @imjlk!
+- [dd84546](https://github.com/imjlk/indexnow-relay/commit/dd845461e8cb1759411047026894b3c19cc29438) Observability and queue inspection:
+  
+  - `GET /metrics` (unrestricted token): Prometheus text exposition with
+    queue gauges per site/status, next-due timestamps, submission batch
+    counters, and build info.
+  - `GET /v1/admin/queue?site=&status=&limit=`: per-URL queue listing with
+    attempts, due times, and last errors.
+  - Query strings now coerce to typed inputs (SmartCoercionHandlerPlugin),
+    also fixing latent coercion gaps on the batches/dead-letters filters. — Thanks @imjlk!
+
 ## 0.2.2 — 2026-09-06
 
 ### Changed
