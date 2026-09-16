@@ -118,23 +118,29 @@ describe('EnqueueService.submit', () => {
     const a = app()
     const token = adminTokenOf(a)
     const interval = a.config.sites['www.example.com']!.minResubmitIntervalMs
-    const now = Date.now()
+    const realNow = Date.now
+    const now = realNow()
+    Date.now = () => now
+    try {
+      a.submissionState.recordSent('www.example.com', ['https://www.example.com/boundary-before'], now - interval + 100)
+      a.submissionState.recordSent('www.example.com', ['https://www.example.com/boundary-after'], now - interval - 100)
 
-    a.submissionState.recordSent('www.example.com', ['https://www.example.com/boundary-before'], now - interval + 100)
-    a.submissionState.recordSent('www.example.com', ['https://www.example.com/boundary-after'], now - interval - 100)
+      const receipt = a.enqueue.submit(
+        token,
+        ['https://www.example.com/boundary-before', 'https://www.example.com/boundary-after'],
+        undefined,
+      )
+      expect(receipt.enqueued).toBe(2)
 
-    const receipt = a.enqueue.submit(
-      token,
-      ['https://www.example.com/boundary-before', 'https://www.example.com/boundary-after'],
-      undefined,
-    )
-    expect(receipt.enqueued).toBe(2)
-
-    const deferred = a.pendingUrls.get('www.example.com', 'https://www.example.com/boundary-before')!
-    expect(deferred.not_before_at).toBe(now - interval + 100 + interval)
-    const normal = a.pendingUrls.get('www.example.com', 'https://www.example.com/boundary-after')!
-    expect(normal.not_before_at).toBe(0)
-    expect(normal.due_at).toBeLessThanOrEqual(Date.now() + a.config.queue.batchWindowMs)
+      const deferred = a.pendingUrls.get('www.example.com', 'https://www.example.com/boundary-before')!
+      expect(deferred.not_before_at).toBe(now - interval + 100 + interval)
+      expect(deferred.due_at).toBe(deferred.not_before_at)
+      const normal = a.pendingUrls.get('www.example.com', 'https://www.example.com/boundary-after')!
+      expect(normal.not_before_at).toBe(0)
+      expect(normal.due_at).toBe(now + a.config.queue.batchWindowMs)
+    } finally {
+      Date.now = realNow
+    }
   })
 
   test('a longer retry wait outranks the resubmit interval', () => {
