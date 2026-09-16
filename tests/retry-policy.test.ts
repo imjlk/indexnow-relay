@@ -46,17 +46,20 @@ describe('parseRetryAfterMs', () => {
   })
 
   test('accepts the three RFC 9110 date formats', () => {
-    // IMF-fixdate, RFC 850, and asctime resolve to the same instants
-    // Date.parse produces for them
+    // expectations are computed with the TZ-independent Date.UTC, so a local
+    // timezone on the test runner cannot mask a wrong implementation
     expect(parseRetryAfterMs('Wed, 15 Nov 2026 08:12:31 GMT', NOW)).toBe(
-      Date.parse('Wed, 15 Nov 2026 08:12:31 GMT') - NOW,
+      Date.UTC(2026, 10, 15, 8, 12, 31) - NOW,
     )
     expect(parseRetryAfterMs('Wednesday, 15-Nov-26 08:12:31 GMT', NOW)).toBe(
-      Date.parse('Wednesday, 15-Nov-26 08:12:31 GMT') - NOW,
+      Date.UTC(2026, 10, 15, 8, 12, 31) - NOW,
     )
+    // asctime has no zone suffix but is UTC per RFC 9110, regardless of the
+    // host timezone
     expect(parseRetryAfterMs('Sun Nov  6 08:49:37 2028', NOW)).toBe(
-      Date.parse('Sun Nov  6 08:49:37 2028') - NOW,
+      Date.UTC(2028, 10, 6, 8, 49, 37) - NOW,
     )
+    expect(parseRetryAfterMs('Sun Nov  6 08:49:37 2028', Date.UTC(2028, 10, 6, 8, 48, 37))).toBe(60_000)
   })
 })
 
