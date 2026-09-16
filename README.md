@@ -301,15 +301,27 @@ fail permanently into dead letters.
   SQLite file. Boot-time lease recovery handles crashes of *that one
   process*; it is not multi-instance support. Never point two relay
   processes at the same database file.
-- **Upgrading** — stop the old container, back up its data volume
-  (`docker run --rm --volumes-from indexnow-relay:ro -v "$PWD":/backup alpine
-  cp -a /data /backup` - works for both `docker run` and Compose since it
-  reads whatever volume the stopped container actually uses), start the new
-  version, then check `/health/ready`
+- **Upgrading** — stop the old container, back up its data volume, start
+  the new version, then check `/health/ready`
   and the admin overview. Database migrations run on boot; rolling back to
   an older image after a migration is not guaranteed safe - restore the
   volume backup instead. Pin a version tag (`ghcr.io/imjlk/indexnow-relay:X.Y.Z`)
   rather than `latest` so upgrades are deliberate.
+- **Backing up before an upgrade** — copy the stopped container's volume
+  (never a hard-coded volume name, which Compose prefixes):
+
+  ```bash
+  # docker run deployments (container named indexnow-relay)
+  docker stop indexnow-relay
+  docker run --rm --volumes-from indexnow-relay:ro \
+    -v "$PWD":/backup alpine cp -a /data /backup
+
+  # Compose deployments (relay is the service name; -a includes stopped)
+  docker compose stop relay
+  docker run --rm --volumes-from "$(docker compose ps -aq relay):ro" \
+    -v "$PWD":/backup alpine cp -a /data /backup
+  ```
+
 - **Data volume** — everything durable (queue, receipts, batches, pause and
   cooldown state) lives under `/data` in the image. Upgrades never require
   deleting the volume; deleting it discards the queued URLs.
