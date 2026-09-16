@@ -165,15 +165,21 @@ describe('EnqueueService.submit', () => {
     })
     apps.push(created)
     const token = findToken(created.config.auth.tokens, ADMIN_TOKEN)!
-    const sentAt = Date.now()
-    created.submissionState.recordSent(WWW_HOST, ['https://www.example.com/a'], sentAt)
-
-    const receipt = created.enqueue.submit(token, ['https://www.example.com/a'], undefined)
+    const realNow = Date.now
+    const frozenAt = realNow()
+    Date.now = () => frozenAt
+    let receipt: ReturnType<typeof created.enqueue.submit>
+    try {
+      created.submissionState.recordSent(WWW_HOST, ['https://www.example.com/a'], frozenAt)
+      receipt = created.enqueue.submit(token, ['https://www.example.com/a'], undefined)
+    } finally {
+      Date.now = realNow
+    }
     expect(receipt.enqueued).toBe(1)
 
     const row = created.pendingUrls.get(WWW_HOST, 'https://www.example.com/a')!
     expect(row.not_before_at).toBe(0)
-    expect(row.due_at).toBeLessThanOrEqual(sentAt + created.config.queue.batchWindowMs)
+    expect(row.due_at).toBe(frozenAt + created.config.queue.batchWindowMs)
   })
 
   test('received always equals enqueued plus coalesced across mixed submissions', () => {

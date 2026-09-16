@@ -76,8 +76,9 @@ export class PendingUrlsRepository {
   /**
    * Reserves one more delivery for a recently-sent URL: a pending row that
    * cannot go out before `notBeforeAt` (last success + the site's minimum
-   * resubmit interval). Unlike dropping the resubmission, the change is
-   * guaranteed to reach IndexNow once the interval passes.
+   * resubmit interval). Unlike dropping the resubmission, the change stays
+   * queued and becomes eligible for delivery once the floor passes, subject
+   * to the usual retry, pause, and site-cooldown scheduling.
    */
   scheduleDeferred(
     siteHost: string,
