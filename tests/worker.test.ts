@@ -44,6 +44,20 @@ afterEach(async () => {
 const status = (code: number): Response => new Response('', { status: code })
 
 describe('queue worker end to end', () => {
+  test('a submission alone does not deliver before scheduler.start()', async () => {
+    // No fetchImpl injected: if the scheduler drained before start(), this
+    // would hit the real IndexNow endpoint.
+    const a = track(createTestApp())
+
+    a.enqueue.submit(findToken(a.config.auth.tokens, ADMIN_TOKEN)!, ['https://www.example.com/a'], undefined)
+    await Bun.sleep(100)
+
+    const row = a.pendingUrls.get(WWW_HOST, 'https://www.example.com/a')!
+    expect(row.status).toBe('pending')
+    expect(row.lease_id).toBeNull()
+    expect(a.batches.list(undefined, 10)).toHaveLength(0)
+  })
+
   test('submits a batch, records sent state, and empties the queue', async () => {
     const { fetch, calls } = recordingFetch(() => status(200))
     const a = track(createTestApp({ fetchImpl: fetch }))

@@ -38,7 +38,10 @@ export class Scheduler {
   #pollTimer: ReturnType<typeof setInterval> | undefined
   #retentionTimer: ReturnType<typeof setInterval> | undefined
   #running = new Map<string, Promise<void>>()
-  #stopped = false
+  // Starts disarmed: `wake()` before `start()` must not launch drains, or a
+  // submission on a not-yet-started scheduler (tests, embedding code) would
+  // begin deliveries - possibly against the real IndexNow endpoint.
+  #stopped = true
   #ticking = false
 
   constructor(deps: SchedulerDeps) {
