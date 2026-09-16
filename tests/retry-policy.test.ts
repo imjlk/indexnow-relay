@@ -60,16 +60,36 @@ describe('parseRetryAfterMs', () => {
       Date.UTC(2028, 10, 6, 8, 49, 37) - NOW,
     )
     expect(parseRetryAfterMs('Sun Nov  6 08:49:37 2028', Date.UTC(2028, 10, 6, 8, 48, 37))).toBe(60_000)
-    // leap second 60 is valid and rolls into the next minute
+    // leap second 60 is valid in every format and rolls into the next minute
     expect(parseRetryAfterMs('Sun Nov  6 08:48:60 2028', Date.UTC(2028, 10, 6, 8, 48, 0))).toBe(60_000)
+    expect(parseRetryAfterMs('Sat, 31 Dec 2016 23:59:60 GMT', Date.UTC(2016, 11, 31, 23, 59, 0))).toBe(60_000)
+    expect(parseRetryAfterMs('Saturday, 31-Dec-16 23:59:60 GMT', Date.UTC(2016, 11, 31, 23, 59, 0))).toBe(60_000)
   })
 
-  test('rejects out-of-range asctime fields instead of normalizing them', () => {
-    expect(parseRetryAfterMs('Wed Sep 16 99:00:00 2026', Date.UTC(2026, 8, 16))).toBeUndefined()
-    expect(parseRetryAfterMs('Wed Sep 16 12:99:00 2026', Date.UTC(2026, 8, 16))).toBeUndefined()
-    expect(parseRetryAfterMs('Wed Sep 16 12:00:99 2026', Date.UTC(2026, 8, 16))).toBeUndefined()
-    expect(parseRetryAfterMs('Wed Sep 39 12:00:00 2026', Date.UTC(2026, 8, 16))).toBeUndefined()
-    expect(parseRetryAfterMs('Wed Sep  0 12:00:00 2026', Date.UTC(2026, 8, 16))).toBeUndefined()
+  test('rejects out-of-range or rolling-over date fields in every format', () => {
+    const cases = [
+      // hour 24 rolls into the next day instead of being a valid time
+      'Wed, 16 Sep 2026 24:00:00 GMT',
+      'Wednesday, 16-Sep-26 24:00:00 GMT',
+      'Wed Sep 16 24:00:00 2026',
+      // calendar overflow would silently become the next month
+      'Thu, 31 Sep 2026 12:00:00 GMT',
+      'Wednesday, 31-Sep-26 12:00:00 GMT',
+      'Wed Sep 31 12:00:00 2026',
+      'Mon, 30 Feb 2028 12:00:00 GMT',
+      'Wed Feb 29 2027 12:00:00 00', // 2027 is not a leap year - and bad year digits
+      // plain out-of-range fields
+      'Wed Sep 16 99:00:00 2026',
+      'Wed Sep 16 12:99:00 2026',
+      'Wed Sep 16 12:00:99 2026',
+      'Wed, 39 Sep 2026 12:00:00 GMT',
+      'Wed, 00 Sep 2026 12:00:00 GMT',
+    ]
+    for (const header of cases) {
+      expect(parseRetryAfterMs(header, Date.UTC(2026, 8, 16, 11))).toBeUndefined()
+    }
+    // a real leap day stays valid
+    expect(parseRetryAfterMs('Mon, 29 Feb 2028 12:00:00 GMT', Date.UTC(2028, 1, 29, 11))).toBe(3_600_000)
   })
 })
 

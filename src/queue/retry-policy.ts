@@ -21,26 +21,30 @@ export function retryDelayMs(attempt: number, queue: NormalizedQueueConfig): num
 
 const MAX_RETRY_AFTER_SECONDS = 2 ** 31 - 1
 
-// RFC 9110 HTTP-date. IMF-fixdate and RFC 850 carry an explicit GMT suffix,
-// so Date.parse reads them as UTC. asctime has no zone designator - it would
-// be read in the local timezone - so it gets its own UTC-strict pattern
-// below. Anything else, including junk like "3600.5" that Date.parse would
-// happily read as the year 3600, is rejected before parsing.
-const HTTP_DATE_PATTERN =
-  /^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{2} (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4} \d{2}:\d{2}:\d{2} GMT$|^(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), \d{2}-(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2} \d{2}:\d{2}:\d{2} GMT$/
-
+// RFC 9110 HTTP-date in its three formats (IMF-fixdate, RFC 850, asctime),
+// always UTC. All three are decomposed into components and validated the
+// same way - never handed to Date.parse, which both accepts non-RFC values
+// (24:00:00, junk like "3600.5" read as a year) and reads zone-less asctime
+// in the host timezone.
+const IMF_FIXDATE_PATTERN =
+  /^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), (\d{2}) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{4}) (\d{2}):(\d{2}):(\d{2}) GMT$/
+const RFC_850_PATTERN =
+  /^(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), (\d{2})-(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-(\d{2}) (\d{2}):(\d{2}):(\d{2}) GMT$/
 const ASCTIME_PATTERN =
-  /^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) ( \d|\d{2}) (\d{2}):(\d{2}):(\d{2}) (\d{4})$/
+  /^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) ( ?\d|\d{2}) (\d{2}):(\d{2}):(\d{2}) (\d{4})$/
 
 const MONTH_INDEX: Record<string, number> = {
   Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
   Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11,
-}/**
+}
+
+/**
  * Parses a `Retry-After` header (RFC 9110: non-negative integer seconds or
  * an HTTP-date, always UTC) into a delay in milliseconds. Returns undefined
- * when the header is absent, malformed (negative, fractional, non-date), or
- * unsafe to compute; a date in the past is treated as no additional wait.
- * The result is only ever combined with the relay's own backoff via max().
+ * when the header is absent, malformed (negative, fractional, non-date,
+ * out-of-range), or unsafe to compute; a date in the past is treated as no
+ * additional wait. The result is only ever combined with the relay's own
+ * backoff via max().
  */
 export function parseRetryAfterMs(header: string | null | undefined, now: number): number | undefined {
   if (header === null || header === undefined) return undefined
@@ -53,26 +57,90 @@ export function parseRetryAfterMs(header: string | null | undefined, now: number
     return seconds * 1000
   }
 
-  const date = asctimeUtcMs(raw) ?? (HTTP_DATE_PATTERN.test(raw) ? Date.parse(raw) : Number.NaN)
-  if (Number.isNaN(date)) return undefined
+  const date = httpDateUtcMs(raw)
+  if (date === undefined) return undefined
   const delay = date - now
   if (delay <= 0) return undefined
   return delay
 }
 
-function asctimeUtcMs(raw: string): number | undefined {
-  const match = ASCTIME_PATTERN.exec(raw)
-  if (match === null) return undefined
-  const [, month, day, hours, minutes, seconds, year] = match
-  const dayNum = Number(day)
-  const hourNum = Number(hours)
-  const minuteNum = Number(minutes)
-  const secondNum = Number(seconds)
-  // Date.UTC would silently normalize out-of-range fields into a far-off
-  // timestamp (hour 99 becomes +4 days); RFC 9110 caps them instead. Second
-  // 60 is a valid leap second and normalizes to the next minute.
-  if (dayNum < 1 || dayNum > 31 || hourNum > 23 || minuteNum > 59 || secondNum > 60) {
+interface DateComponents {
+  year: number
+  monthIndex: number
+  day: number
+  hour: number
+  minute: number
+  second: number
+}
+
+function httpDateUtcMs(raw: string): number | undefined {
+  const components = decomposeHttpDate(raw)
+  if (components === undefined) return undefined
+  const { year, monthIndex, day, hour, minute, second } = components
+
+  if (hour > 23 || minute > 59 || second > 60) return undefined
+  // Second 60 is a leap second: the instant is the start of the next minute.
+  const wholeSecond = second === 60 ? 59 : second
+  const ms = Date.UTC(year, monthIndex, day, hour, minute, wholeSecond) + (second === 60 ? 1000 : 0)
+
+  // Reject calendar overflow (Feb 30, Sep 31, ...) instead of letting
+  // Date.UTC roll it into the next month. The leap second's +1s is undone
+  // first so the check compares the whole-second instant.
+  const check = new Date(second === 60 ? ms - 1000 : ms)
+  if (
+    check.getUTCFullYear() !== year ||
+    check.getUTCMonth() !== monthIndex ||
+    check.getUTCDate() !== day ||
+    check.getUTCHours() !== hour ||
+    check.getUTCMinutes() !== minute ||
+    check.getUTCSeconds() !== wholeSecond
+  ) {
     return undefined
   }
-  return Date.UTC(Number(year), MONTH_INDEX[month!]!, dayNum, hourNum, minuteNum, secondNum)
+  return ms
+}
+
+function decomposeHttpDate(raw: string): DateComponents | undefined {
+  const fixdate = IMF_FIXDATE_PATTERN.exec(raw)
+  if (fixdate !== null) {
+    const [, day, month, year, hour, minute, second] = fixdate
+    return {
+      year: Number(year),
+      monthIndex: MONTH_INDEX[month!]!,
+      day: Number(day),
+      hour: Number(hour),
+      minute: Number(minute),
+      second: Number(second),
+    }
+  }
+
+  const rfc850 = RFC_850_PATTERN.exec(raw)
+  if (rfc850 !== null) {
+    const [, day, month, twoDigitYear, hour, minute, second] = rfc850
+    const year = Number(twoDigitYear)
+    return {
+      // RFC 850 two-digit years: 00-49 -> 2000s, 50-99 -> 1900s
+      year: year < 50 ? year + 2000 : year + 1900,
+      monthIndex: MONTH_INDEX[month!]!,
+      day: Number(day),
+      hour: Number(hour),
+      minute: Number(minute),
+      second: Number(second),
+    }
+  }
+
+  const asctime = ASCTIME_PATTERN.exec(raw)
+  if (asctime !== null) {
+    const [, month, day, hour, minute, second, year] = asctime
+    return {
+      year: Number(year),
+      monthIndex: MONTH_INDEX[month!]!,
+      day: Number(day),
+      hour: Number(hour),
+      minute: Number(minute),
+      second: Number(second),
+    }
+  }
+
+  return undefined
 }
