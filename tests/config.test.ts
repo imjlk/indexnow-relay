@@ -226,6 +226,93 @@ describe('normalizeRelayConfig', () => {
     expect(config.auth.tokens[0]!.sites).toEqual(['blog.example.com'])
   })
 
+  test('rejects invalid batch sizes on all three input paths', () => {
+    for (const bad of [0, -1, 1.5, 10_001]) {
+      const cases: Array<[string, Partial<RelayConfigInput>]> = [
+        ['sites', { sites: { 'www.example.com': { key: 'a1b2c3d4e5f60718', batchSize: bad } } }],
+        ['defaults', { defaults: { batchSize: bad } }],
+        ['queue', { queue: { maxBatchSize: bad } }],
+      ]
+      for (const [label, overrides] of cases) {
+        const error = captureConfigError(() => normalizeRelayConfig(baseConfig(overrides)))
+        expect(error).toBeInstanceOf(ConfigError)
+        expect(error.message).toMatch(/must be an integer between 1 and 10000/)
+        expect(error.message.toLowerCase()).toContain(label === 'sites' ? 'sites' : label)
+        void label
+      }
+    }
+  })
+
+  test('accepts the batch-size bounds on all three input paths', () => {
+    for (const good of [1, 10_000]) {
+      const viaSite = normalizeRelayConfig(baseConfig({ sites: { 'www.example.com': { key: 'a1b2c3d4e5f60718', batchSize: good } } }))
+      expect(viaSite.sites['www.example.com']!.batchSize).toBe(good)
+      const viaDefaults = normalizeRelayConfig(baseConfig({ defaults: { batchSize: good } }))
+      expect(viaDefaults.sites['www.example.com']!.batchSize).toBe(good)
+      const viaQueue = normalizeRelayConfig(baseConfig({ queue: { maxBatchSize: good } }))
+      expect(viaQueue.queue.maxBatchSize).toBe(good)
+      expect(viaQueue.sites['www.example.com']!.batchSize).toBe(good)
+    }
+  })
+
+  test('omitted batch sizes keep the existing defaults and precedence', () => {
+    const config = normalizeRelayConfig(baseConfig())
+    expect(config.queue.maxBatchSize).toBe(1_000)
+    expect(config.sites['www.example.com']!.batchSize).toBe(1_000)
+    const withDefault = normalizeRelayConfig(baseConfig({ defaults: { batchSize: 500 } }))
+    expect(withDefault.sites['www.example.com']!.batchSize).toBe(500)
+  })
+
+  test('a valid site override does not excuse an invalid defaults.batchSize', () => {
+    const error = captureConfigError(() =>
+      normalizeRelayConfig(
+        baseConfig({
+          defaults: { batchSize: 1.5 },
+          sites: { 'www.example.com': { key: 'a1b2c3d4e5f60718', batchSize: 100 } },
+        }),
+      ),
+    )
+    expect(error).toBeInstanceOf(ConfigError)
+    expect(error.message).toContain('defaults.batchSize')
+  })
+
+  test('rejects non-finite or negative resubmit intervals', () => {
+    for (const bad of [-1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      for (const overrides of [
+        { defaults: { minResubmitIntervalMs: bad } },
+        { sites: { 'www.example.com': { key: 'a1b2c3d4e5f60718', minResubmitIntervalMs: bad } } },
+      ] as Array<Partial<RelayConfigInput>>) {
+        const error = captureConfigError(() => normalizeRelayConfig(baseConfig(overrides)))
+        expect(error).toBeInstanceOf(ConfigError)
+        expect(error.message).toMatch(/finite non-negative/)
+      }
+    }
+    const zero = normalizeRelayConfig(baseConfig({ defaults: { minResubmitIntervalMs: 0 } }))
+    expect(zero.sites['www.example.com']!.minResubmitIntervalMs).toBe(0)
+  })
+
+  test('loadRelayConfig rejects a bad defaults.batchSize file before serving', async () => {
+    // checked-in fixture: ttsc's runtime plugin needs the file present at
+    // process start (see the loadRelayConfig fixture note below)
+    const configPath = join(import.meta.dir, 'fixtures', 'bad-batch-size.fixture.ts')
+    process.env['INDEXNOW_RELAY_FIXTURE_TOKEN'] = 'operator-token-000000000001'
+    process.env['INDEXNOW_RELAY_FIXTURE_KEY'] = 'a1b2c3d4e5f60718'
+    try {
+      const error = await loadRelayConfig(configPath).then(
+        () => null,
+        (e: unknown) => e,
+      )
+      expect(error).toBeInstanceOf(Error)
+      const message = (error as Error).message
+      expect(message).toContain('defaults.batchSize')
+      expect(message).toMatch(/integer between 1 and 10000/)
+      expect(message).not.toContain('operator-token-000000000001')
+    } finally {
+      delete process.env['INDEXNOW_RELAY_FIXTURE_TOKEN']
+      delete process.env['INDEXNOW_RELAY_FIXTURE_KEY']
+    }
+  })
+
   test('rejects a keyPath without the {key} placeholder', () => {
     expect(() =>
       normalizeRelayConfig(

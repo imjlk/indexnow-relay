@@ -18,7 +18,11 @@ advanced object form overrides the key file path (`keyPath`, default
 `/{key}.txt`, must contain `{key}` exactly once in its final path segment;
 queries, fragments, backslashes, encoded separators, control characters, and
 `..` segments are rejected), batch size, minimum resubmit interval, and
-enabled flag. A key file below a subdirectory limits the site to submitting
+enabled flag. Batch sizes are integers between 1 and 10,000 (the protocol's
+per-request cap) on every path that sets one — per-site, site defaults, and
+the queue default — and resubmit intervals are finite non-negative
+milliseconds; invalid values fail startup with the field's path instead of
+being corrected or reaching the scheduler. A key file below a subdirectory limits the site to submitting
 URLs under that directory (prefix including the path separator), and error
 messages never embed the key or its derived location.
 The full key location URL is derived, never repeated by the operator. Auth is

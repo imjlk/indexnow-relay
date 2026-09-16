@@ -19,6 +19,29 @@ export class ConfigError extends Error {
   }
 }
 
+/** Range bounds shared by every batch-size validation (see {@link assertBatchSize}). */
+const MIN_BATCH_SIZE = 1
+const MAX_BATCH_SIZE = 10_000
+
+/**
+ * Rejects invalid batch sizes on every input path - per-site overrides, site
+ * defaults, and the queue default alike - and on the final normalized
+ * result. Values are never corrected (no rounding, clamping, or
+ * default-fallback): a bad config must fail startup with the field's path.
+ */
+function assertBatchSize(value: number, path: string): void {
+  if (!Number.isInteger(value) || value < MIN_BATCH_SIZE || value > MAX_BATCH_SIZE) {
+    throw new ConfigError(`${path} must be an integer between ${MIN_BATCH_SIZE} and ${MAX_BATCH_SIZE}.`)
+  }
+}
+
+/** Finite non-negative milliseconds (NaN/Infinity cannot travel via JSON but can via TS configs). */
+function assertNonNegativeMs(value: number, path: string): void {
+  if (!Number.isFinite(value) || value < 0) {
+    throw new ConfigError(`${path} must be a finite non-negative number of milliseconds.`)
+  }
+}
+
 const HOSTNAME_PATTERN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/
 // IndexNow keys are 8-128 characters of letters, digits, and hyphens. The
 // original value is preserved verbatim - never lowercased or trimmed -
@@ -158,6 +181,10 @@ function normalizeKeyPath(
 }
 
 function normalizeQueue(input: QueueConfigInput | undefined): NormalizedQueueConfig {
+  if (input?.maxBatchSize !== undefined) {
+    assertBatchSize(input.maxBatchSize, 'queue.maxBatchSize')
+  }
+
   const merged: NormalizedQueueConfig = {
     ...DEFAULT_QUEUE_CONFIG,
     ...definedEntries(input),
@@ -168,6 +195,8 @@ function normalizeQueue(input: QueueConfigInput | undefined): NormalizedQueueCon
   if (input?.backoffBaseMs === undefined && merged.backoffMaxMs < DEFAULT_QUEUE_CONFIG.backoffBaseMs) {
     merged.backoffBaseMs = merged.backoffMaxMs
   }
+
+  assertBatchSize(merged.maxBatchSize, 'queue.maxBatchSize')
 
   if (merged.maxCoalesceDelayMs < merged.batchWindowMs) {
     throw new ConfigError(
@@ -213,11 +242,24 @@ export function normalizeRelayConfig(input: RelayConfigInput): NormalizedRelayCo
       throw new ConfigError(`sites: duplicate host "${host}" after normalization.`)
     }
 
+    if (input.defaults?.batchSize !== undefined) {
+      assertBatchSize(input.defaults.batchSize, 'defaults.batchSize')
+    }
+    if (input.defaults?.minResubmitIntervalMs !== undefined) {
+      assertNonNegativeMs(input.defaults.minResubmitIntervalMs, 'defaults.minResubmitIntervalMs')
+    }
+
     const advanced = isAdvancedSiteConfig(siteInput) ? siteInput : undefined
+    if (advanced?.batchSize !== undefined) {
+      assertBatchSize(advanced.batchSize, `sites.${rawHost}.batchSize`)
+    }
+    if (advanced?.minResubmitIntervalMs !== undefined) {
+      assertNonNegativeMs(advanced.minResubmitIntervalMs, `sites.${rawHost}.minResubmitIntervalMs`)
+    }
     const key = resolveSiteKey(siteInput, rawHost)
     const { keyPath, keyScopeDir } = normalizeKeyPath(advanced?.keyPath ?? input.defaults?.keyPath, host, key)
 
-    sites[host] = {
+    const site: NormalizedSite = {
       host,
       key,
       keyPath,
@@ -230,6 +272,11 @@ export function normalizeRelayConfig(input: RelayConfigInput): NormalizedRelayCo
         input.defaults?.minResubmitIntervalMs ??
         DEFAULT_MIN_RESUBMIT_INTERVAL_MS,
     }
+    // final-result validation: the composition chain itself must never
+    // produce an invalid batch size or interval
+    assertBatchSize(site.batchSize, `sites.${rawHost}.batchSize`)
+    assertNonNegativeMs(site.minResubmitIntervalMs, `sites.${rawHost}.minResubmitIntervalMs`)
+    sites[host] = site
   }
 
   const tokens = normalizeAuth(input.auth, sites)

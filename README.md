@@ -229,7 +229,7 @@ Delivery is fire-and-forget with bounded retries and never blocks the queue.
 | --- | --- | --- |
 | `batchWindowMs` | `5_000` | How long a URL waits for more URLs before its site batch is sent |
 | `maxCoalesceDelayMs` | `30_000` | Cap on batch-window coalescing after a URL's first sight; retry waits, resubmit intervals, pauses, and site cooldowns are not bounded by it |
-| `maxBatchSize` | `1_000` | Default URLs per IndexNow request |
+| `maxBatchSize` | `1_000` | Default URLs per IndexNow request; every batch-size path (per-site, `defaults`, queue) accepts integers 1–10,000 only |
 | `maxConcurrentSites` | `4` | Sites drained in parallel |
 | `pollIntervalMs` | `250` | Scheduler tick |
 | `maxAttempts` | `10` | Total delivery attempts (including the first) before a URL becomes a dead letter |
