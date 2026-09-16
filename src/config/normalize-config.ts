@@ -19,7 +19,10 @@ export class ConfigError extends Error {
 }
 
 const HOSTNAME_PATTERN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/
-const INDEXNOW_KEY_PATTERN = /^[0-9a-f]{8,128}$/i
+// IndexNow keys are 8-128 characters of letters, digits, and hyphens. The
+// original value is preserved verbatim - never lowercased or trimmed -
+// because the key file on the origin must match byte for byte.
+const INDEXNOW_KEY_PATTERN = /^[A-Za-z0-9-]{8,128}$/
 const DEFAULT_KEY_PATH = '/{key}.txt'
 const DEFAULT_MIN_RESUBMIT_INTERVAL_MS = 300_000
 
@@ -78,21 +81,63 @@ function resolveSiteKey(value: SiteConfigInput, host: string): string {
   const key = resolveSecret(isAdvancedSiteConfig(value) ? value.key : value, `sites.${host}.key`)
   if (!INDEXNOW_KEY_PATTERN.test(key)) {
     throw new ConfigError(
-      `sites.${host}.key: invalid IndexNow key. Keys must be 8-128 hexadecimal characters ` +
-        '(generate one with `openssl rand -hex 16`).',
+      `sites.${host}.key: invalid IndexNow key. Keys must be 8-128 characters of letters, ` +
+        'digits, or hyphens (generate one with `openssl rand -hex 16`).',
     )
   }
-  return key.toLowerCase()
+  return key
 }
 
-function normalizeKeyPath(keyPath: string | undefined, host: string): string {
+/**
+ * Validates `keyPath` as a path on the origin site and returns it with the
+ * derived key-file scope: the directory holding the key file. IndexNow lets
+ * a key file at `/catalog/{key}.txt` authorize only URLs under `/catalog/`;
+ * the scope is compared on path-segment boundaries (`/catalog` matches
+ * `/catalog` and `/catalog/...`, never `/catalogue`). An empty scope means
+ * the whole site.
+ */
+function normalizeKeyPath(
+  keyPath: string | undefined,
+  host: string,
+  key: string,
+): { keyPath: string; keyScopeDir: string } {
   const resolved = keyPath ?? DEFAULT_KEY_PATH
-  if (!resolved.startsWith('/') || !resolved.includes('{key}')) {
+  const placeholder = '{key}'
+  const placeholderCount = resolved.split(placeholder).length - 1
+  if (
+    !resolved.startsWith('/') ||
+    placeholderCount !== 1 ||
+    resolved.includes('\\') ||
+    /[?#\u0000-\u001f\u007f]/.test(resolved) ||
+    resolved.split('/').includes('..')
+  ) {
     throw new ConfigError(
-      `sites.${host}.keyPath: "${resolved}" must start with "/" and contain the {key} placeholder.`,
+      `sites.${host}.keyPath must be a path on this site starting with "/", containing the ` +
+        '{key} placeholder exactly once, without query, fragment, backslash, control ' +
+        'characters, or ".." segments.',
     )
   }
-  return resolved
+
+  const substituted = resolved.replace(placeholder, key)
+  let keyLocation: URL
+  try {
+    keyLocation = new URL(`https://${host}${substituted}`)
+  } catch {
+    throw new ConfigError(`sites.${host}.keyPath does not form a usable key location URL.`)
+  }
+  // The built URL must round-trip to the configured path; anything the URL
+  // parser would rewrite (dot segments are rejected above; non-ASCII or
+  // whitespace would be percent-encoded and no longer match the origin file)
+  // is refused instead of silently changing meaning.
+  if (keyLocation.hostname !== host || keyLocation.pathname !== substituted) {
+    throw new ConfigError(
+      `sites.${host}.keyPath must stay a plain path on "${host}" - it resolved to ` +
+        `${keyLocation.hostname}${keyLocation.pathname}.`,
+    )
+  }
+
+  const scopeEnd = resolved.lastIndexOf('/', resolved.indexOf(placeholder))
+  return { keyPath: resolved, keyScopeDir: scopeEnd <= 0 ? '' : resolved.slice(0, scopeEnd) }
 }
 
 function normalizeQueue(input: QueueConfigInput | undefined): NormalizedQueueConfig {
@@ -153,12 +198,13 @@ export function normalizeRelayConfig(input: RelayConfigInput): NormalizedRelayCo
 
     const advanced = isAdvancedSiteConfig(siteInput) ? siteInput : undefined
     const key = resolveSiteKey(siteInput, rawHost)
-    const keyPath = normalizeKeyPath(advanced?.keyPath ?? input.defaults?.keyPath, host)
+    const { keyPath, keyScopeDir } = normalizeKeyPath(advanced?.keyPath ?? input.defaults?.keyPath, host, key)
 
     sites[host] = {
       host,
       key,
       keyPath,
+      keyScopeDir,
       keyLocation: `https://${host}${keyPath.replace('{key}', key)}`,
       enabled: advanced?.enabled ?? true,
       batchSize: advanced?.batchSize ?? input.defaults?.batchSize ?? queue.maxBatchSize,
@@ -209,12 +255,16 @@ function normalizeAuth(
     }
 
     if (siteScope !== '*') {
-      for (const rawHost of siteScope) {
-        const host = normalizeHostname(rawHost)
+      // store the normalized, de-duplicated hostnames so case or trailing-dot
+      // variations in the config cannot slip past the runtime includes() check
+      const normalizedScope = [...new Set(siteScope.map((rawHost) => normalizeHostname(rawHost)))]
+      for (const host of normalizedScope) {
         if (!(host in sites)) {
           throw new ConfigError(`auth.tokens.${id}.sites: "${host}" is not configured in sites.`)
         }
       }
+      tokens.push({ id, value: resolvedValue, sites: normalizedScope })
+      return
     }
 
     tokens.push({ id, value: resolvedValue, sites: siteScope })
