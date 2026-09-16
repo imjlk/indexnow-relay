@@ -7,6 +7,7 @@ describe('normalizeSubmitUrl', () => {
     expect(normalizeSubmitUrl('https://www.example.com/posts/hello')).toEqual({
       url: 'https://www.example.com/posts/hello',
       host: 'www.example.com',
+      path: '/posts/hello',
     })
   })
 

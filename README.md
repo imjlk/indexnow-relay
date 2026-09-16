@@ -60,7 +60,6 @@ export default defineConfig({
     'www.example.com': env('INDEXNOW_KEY_WWW_EXAMPLE_COM'),
     'docs.example.com': {
       key: env('INDEXNOW_KEY_DOCS_EXAMPLE_COM'),
-      keyPath: '/.well-known/{key}.txt',
     },
   },
 })
@@ -156,7 +155,7 @@ Providing both a config file and `INDEXNOW_SITES` is a startup error -
 never a silent merge:
 
 ```bash
-INDEXNOW_SITES='{"www.example.com":"a1b2c3d4e5f60718293a4b5c6d7e8f9","docs.example.com":{"key":"...","keyPath":"/.well-known/{key}.txt"}}'
+INDEXNOW_SITES='{"www.example.com":"a1b2c3d4e5f60718293a4b5c6d7e8f9","docs.example.com":{"key":"..."}}'
 ```
 
 ### `auth`
@@ -187,7 +186,10 @@ sites: {
   // Advanced: override any per-site behavior.
   'docs.example.com': {
     key: env('INDEXNOW_KEY_DOCS_EXAMPLE_COM'),
-    keyPath: '/.well-known/{key}.txt', // default: '/{key}.txt'
+    // default '/{key}.txt' covers the whole site; a key file under a
+    // subdirectory (e.g. '/catalog/{key}.txt') limits submissions to URLs
+    // under that directory
+    // keyPath: '/catalog/{key}.txt',
     batchSize: 500,                    // URLs per IndexNow request (max 10,000)
     minResubmitIntervalMs: 600_000,    // redeliver changes that arrive sooner than this, after it passes
     enabled: true,                     // false = config present but inactive

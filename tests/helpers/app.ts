@@ -45,7 +45,7 @@ export function createTestApp(options: TestAppOptions = {}): RelayApp {
     },
     sites: options.sites ?? {
       [WWW_HOST]: WWW_KEY,
-      [BLOG_HOST]: { key: BLOG_KEY, keyPath: '/.well-known/{key}.txt', batchSize: 2 },
+      [BLOG_HOST]: { key: BLOG_KEY, batchSize: 2 },
     },
     database: { path: options.databasePath ?? join(dir, 'relay.db') },
     ...(options.webhookUrl === undefined ? {} : { notifications: { webhookUrl: options.webhookUrl } }),

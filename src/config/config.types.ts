@@ -14,11 +14,13 @@ export interface EnvSecretReference {
 export type SecretValue = EnvSecretReference | string
 
 export interface SiteAdvancedConfig {
-  /** IndexNow key for this host. */
+  /** IndexNow key for this host (8–128 letters, digits, or hyphens; stored verbatim). */
   key: SecretValue
   /**
    * Path on the origin site where the key file is served.
-   * Must contain the `{key}` placeholder. Default: `/{key}.txt`
+   * Must contain the `{key}` placeholder exactly once. Default: `/{key}.txt`.
+   * A key below a subdirectory (e.g. `/catalog/{key}.txt`) limits this site
+   * to submitting URLs under that directory.
    */
   keyPath?: string
   /** Max URLs per IndexNow request for this site. Default: 1000 */
@@ -105,6 +107,8 @@ export interface NormalizedSite {
   host: string
   key: string
   keyPath: string
+  /** Directory holding the key file; only URLs under it may be submitted. Empty = whole site. */
+  keyScopeDir: string
   keyLocation: string
   enabled: boolean
   batchSize: number

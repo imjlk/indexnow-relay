@@ -22,6 +22,15 @@ const baseConfig = (overrides: Partial<RelayConfigInput> = {}): RelayConfigInput
   ...overrides,
 })
 
+function captureConfigError(fn: () => unknown): ConfigError {
+  try {
+    fn()
+  } catch (error) {
+    return error as ConfigError
+  }
+  throw new Error('expected fn to throw')
+}
+
 describe('normalizeHostname', () => {
   test('lowercases and trims', () => {
     expect(normalizeHostname('  WWW.Example.COM ')).toBe('www.example.com')
@@ -117,8 +126,104 @@ describe('normalizeRelayConfig', () => {
     expect(queue.backoffMaxMs).toBe(10_000)
   })
 
-  test('rejects an invalid IndexNow key', () => {
-    expect(() => normalizeRelayConfig(baseConfig({ sites: { 'www.example.com': 'not-hex' } }))).toThrow(ConfigError)
+  test('rejects an invalid IndexNow key without echoing it', () => {
+    for (const bad of ['not-hex', 'short', 'x'.repeat(129), 'has space', 'has_underscore']) {
+      const error = captureConfigError(() => normalizeRelayConfig(baseConfig({ sites: { 'www.example.com': bad } })))
+      expect(error).toBeInstanceOf(ConfigError)
+      expect(error.message).not.toContain(bad)
+    }
+  })
+
+  test('preserves mixed-case and hyphenated keys verbatim', () => {
+    const key = 'My-Key-7f3A-000000000001'
+    const config = normalizeRelayConfig(baseConfig({ sites: { 'www.example.com': key } }))
+    expect(config.sites['www.example.com']!.key).toBe(key)
+    expect(config.sites['www.example.com']!.keyLocation).toBe(`https://www.example.com/${key}.txt`)
+  })
+
+  test('derives the key-file scope from the keyPath directory', () => {
+    const config = normalizeRelayConfig(
+      baseConfig({
+        sites: {
+          'www.example.com': { key: 'a1b2c3d4e5f60718', keyPath: '/catalog/{key}.txt' },
+          'docs.example.com': { key: 'a1b2c3d4e5f60719', keyPath: '/catalog/sub/{key}.txt' },
+          'blog.example.com': 'a1b2c3d4e5f60711',
+        },
+      }),
+    )
+    expect(config.sites['www.example.com']!.keyScopeDir).toBe('/catalog')
+    expect(config.sites['docs.example.com']!.keyScopeDir).toBe('/catalog/sub')
+    expect(config.sites['blog.example.com']!.keyScopeDir).toBe('')
+  })
+
+  test('rejects confusing keyPath values without echoing the full path', () => {
+    const badPaths = [
+      'https://cdn.example.com/{key}.txt', // absolute URL, not a path
+      '/{key}.txt?source=cfg',             // query
+      '/{key}.txt#fragment',               // fragment
+      '/catalog\\{key}.txt',                  // backslash
+      '/catalog/{key}.txt/extra/{key}',    // two placeholders
+      '/catalog/../{key}.txt',             // dot-dot segment
+      '/cat alog/{key}.txt',               // whitespace (would be percent-encoded)
+      '/no-placeholder.txt',               // missing placeholder
+      '/catalog/%2f{key}.txt',             // encoded separator
+      '/catalog/%5C{key}.txt',             // encoded backslash
+    ]
+    const key = 'a1b2c3d4e5f60718'
+    // this fixture embeds the concrete key: redaction must cover it too
+    const badPathsWithKey = [`/x-${key}/../{key}.txt`, ...badPaths]
+    for (const keyPath of badPathsWithKey) {
+      let message = ''
+      try {
+        normalizeRelayConfig(baseConfig({ sites: { 'www.example.com': { key, keyPath } } }))
+      } catch (error) {
+        message = (error as ConfigError).message
+      }
+      expect(message).not.toBe('')
+      // neither the supplied path nor the resolved location (which embeds
+      // the secret key) may surface
+      expect(message).not.toContain(keyPath)
+      expect(message).not.toContain(key)
+    }
+  })
+
+  test('rejects encoded separators formed across the placeholder boundary', () => {
+    // a key starting with "2f" completes an escaped slash after a literal %
+    expect(() =>
+      normalizeRelayConfig(
+        baseConfig({ sites: { 'www.example.com': { key: '2fABCDEF000001', keyPath: '/catalog/private%{key}.txt' } } }),
+      ),
+    ).toThrow(ConfigError)
+    expect(() =>
+      normalizeRelayConfig(
+        baseConfig({ sites: { 'www.example.com': { key: '5cABCDEF000001', keyPath: '/catalog/private%{key}.txt' } } }),
+      ),
+    ).toThrow(ConfigError)
+  })
+
+  test('scope directories are stored with canonical percent escapes', () => {
+    const config = normalizeRelayConfig(
+      baseConfig({ sites: { 'www.example.com': { key: 'a1b2c3d4e5f60718', keyPath: '/caf%c3%a9/{key}.txt' } } }),
+    )
+    expect(config.sites['www.example.com']!.keyScopeDir).toBe('/caf%C3%A9')
+  })
+
+  test('keeps the placeholder in the final path segment so the scope is the key directory', () => {
+    for (const keyPath of ['/{key}/proof.txt', '/catalog/{key}/proof.txt']) {
+      expect(() =>
+        normalizeRelayConfig(baseConfig({ sites: { 'www.example.com': { key: 'a1b2c3d4e5f60718', keyPath } } })),
+      ).toThrow(ConfigError)
+    }
+  })
+
+  test('stores scoped token site lists normalized and de-duplicated', () => {
+    const config = normalizeRelayConfig(
+      baseConfig({
+        auth: { tokens: { blog: { value: 'blog-token-0000000000001', sites: ['BLOG.Example.COM.', 'blog.example.com'] } } },
+        sites: { 'blog.example.com': 'a1b2c3d4e5f60711' },
+      }),
+    )
+    expect(config.auth.tokens[0]!.sites).toEqual(['blog.example.com'])
   })
 
   test('rejects a keyPath without the {key} placeholder', () => {

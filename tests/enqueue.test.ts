@@ -282,6 +282,136 @@ describe('EnqueueService.submit', () => {
     expect(row.event_type).toBe('updated')
   })
 
+  test('enforces the key-file directory scope on path-segment boundaries', () => {
+    const created = createTestApp({
+      sites: {
+        [WWW_HOST]: { key: WWW_KEY, keyPath: '/catalog/{key}.txt' },
+        [BLOG_HOST]: { key: BLOG_KEY, batchSize: 2 },
+      },
+    })
+    apps.push(created)
+    const token = findToken(created.config.auth.tokens, ADMIN_TOKEN)!
+
+    const ok = created.enqueue.submit(
+      token,
+      ['https://www.example.com/catalog/item/1', 'https://www.example.com/catalog/', 'https://www.example.com/catalog/deep/nested'],
+      undefined,
+    )
+    expect(ok.enqueued).toBe(3)
+
+    for (const [label, url] of [
+      ['sibling prefix', 'https://www.example.com/catalogue/1'],
+      ['outside the scope', 'https://www.example.com/help/1'],
+      // the slashless parent is its own resource, not the directory
+      ['slashless parent', 'https://www.example.com/catalog'],
+      // encoded separators decode into traversal on many origins
+      ['encoded traversal', 'https://www.example.com/catalog/..%2fhelp'],
+    ] as const) {
+      const error = capture(() => created.enqueue.submit(token, [url], undefined))
+      expect(errorCode(error)).toBe('INVALID_URL')
+      const detail = ((error as { data?: { urls?: Array<{ url: string; reason: string }> } }).data?.urls) ?? []
+      expect(detail).toHaveLength(1)
+      expect(detail[0]!.url).toBe(url)
+      expect(detail[0]!.reason).not.toContain(WWW_KEY)
+      void label
+    }
+
+    // the whole-site default stays unrestricted
+    const blog = created.enqueue.submit(token, ['https://blog.example.com/anywhere/x'], undefined)
+    expect(blog.enqueued).toBe(1)
+  })
+
+  test('scope comparison is insensitive to percent-escape casing', () => {
+    const created = createTestApp({
+      sites: {
+        [WWW_HOST]: { key: WWW_KEY, keyPath: '/caf%c3%a9/{key}.txt' },
+        [BLOG_HOST]: { key: BLOG_KEY, batchSize: 2 },
+      },
+    })
+    apps.push(created)
+    const token = findToken(created.config.auth.tokens, ADMIN_TOKEN)!
+
+    // escapes survive URL parsing verbatim, so both spellings are distinct
+    // queue identities - but both must fall inside the scope regardless of
+    // percent-escape casing
+    const ok = created.enqueue.submit(token, ['https://www.example.com/caf%C3%A9/page'], undefined)
+    expect(ok.enqueued).toBe(1)
+    const lower = created.enqueue.submit(token, ['https://www.example.com/caf%c3%a9/page'], undefined)
+    expect(lower.enqueued).toBe(1)
+    expect(created.pendingUrls.listQueue(WWW_HOST, 'pending', 10)).toHaveLength(2)
+  })
+
+  test('scope errors never leak the key, and authorization comes first', () => {
+    const secretKey = 'My-Key-7f3A-000000000001'
+    const created = createTestApp({
+      sites: {
+        // the directory itself embeds the key value
+        [WWW_HOST]: { key: secretKey, keyPath: `/x-${secretKey}/{key}.txt` },
+        [BLOG_HOST]: { key: BLOG_KEY, batchSize: 2 },
+      },
+    })
+    apps.push(created)
+    const admin = findToken(created.config.auth.tokens, ADMIN_TOKEN)!
+    const blog = findToken(created.config.auth.tokens, BLOG_TOKEN)!
+
+    // a token unauthorized for the host gets FORBIDDEN_SITE, no scope detail
+    const forbidden = capture(() => created.enqueue.submit(blog, ['https://www.example.com/outside'], undefined))
+    expect(errorCode(forbidden)).toBe('FORBIDDEN_SITE')
+
+    // an authorized token gets INVALID_URL without the configured directory
+    const invalid = capture(() => created.enqueue.submit(admin, ['https://www.example.com/outside'], undefined))
+    expect(errorCode(invalid)).toBe('INVALID_URL')
+    const message = JSON.stringify((invalid as { data?: unknown }).data ?? {})
+    expect(message).not.toContain(secretKey)
+  })
+
+  test('unreserved percent escapes compare equal in both directions', () => {
+    const created = createTestApp({
+      sites: {
+        [WWW_HOST]: { key: WWW_KEY, keyPath: '/catalog/{key}.txt' },
+        [BLOG_HOST]: { key: BLOG_KEY, keyPath: '/%63atalog/{key}.txt', batchSize: 2 },
+      },
+    })
+    apps.push(created)
+    const token = findToken(created.config.auth.tokens, ADMIN_TOKEN)!
+
+    // %61 = 'a': escaped spelling of an in-scope path
+    const escaped = created.enqueue.submit(token, ['https://www.example.com/c%61talog/page'], undefined)
+    expect(escaped.enqueued).toBe(1)
+
+    // scope configured with an escaped letter, URL submitted plainly
+    const plain = created.enqueue.submit(token, ['https://blog.example.com/catalog/page'], undefined)
+    expect(plain.enqueued).toBe(1)
+
+    // decoded dot segments are traversal, not spelling
+    const traversal = capture(() => created.enqueue.submit(token, ['https://www.example.com/catalog/%2e%2e/help'], undefined))
+    expect(errorCode(traversal)).toBe('INVALID_URL')
+  })
+
+  test('an out-of-scope URL rejects the whole request all-or-nothing', () => {
+    const created = createTestApp({
+      sites: {
+        [WWW_HOST]: { key: WWW_KEY, keyPath: '/catalog/{key}.txt' },
+        [BLOG_HOST]: { key: BLOG_KEY, batchSize: 2 },
+      },
+    })
+    apps.push(created)
+    const token = findToken(created.config.auth.tokens, ADMIN_TOKEN)!
+
+    const error = capture(() =>
+      created.enqueue.submit(
+        token,
+        ['https://www.example.com/catalog/item/1', 'https://www.example.com/help/1'],
+        undefined,
+      ),
+    )
+    expect(errorCode(error)).toBe('INVALID_URL')
+    // nothing was enqueued on either host and no receipt was written
+    expect(created.pendingUrls.queueDepths()).toEqual([])
+    const receipts = created.db.query('SELECT COUNT(*) AS n FROM receipts').get() as { n: number }
+    expect(receipts.n).toBe(0)
+  })
+
   test('rejects invalid URLs without writing anything (all-or-nothing)', () => {
     const a = app()
     const invalid = capture(() => a.enqueue.submit(adminTokenOf(a), ['https://www.example.com/a', 'ftp://nope/'], undefined))
