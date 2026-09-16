@@ -35,9 +35,14 @@ export class IndexNowClient {
         body: JSON.stringify(payload),
         signal: AbortSignal.timeout(this.#options.timeoutMs),
       })
-      return { completed: true, httpStatus: response.status, networkError: false }
+      return {
+        completed: true,
+        httpStatus: response.status,
+        retryAfter: response.headers.get('retry-after'),
+        networkError: false,
+      }
     } catch {
-      return { completed: false, httpStatus: undefined, networkError: true }
+      return { completed: false, httpStatus: undefined, retryAfter: null, networkError: true }
     }
   }
 }

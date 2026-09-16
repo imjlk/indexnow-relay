@@ -7,11 +7,11 @@ export interface RawSubmitResult {
   /** True when the HTTP call itself completed. */
   completed: boolean
   httpStatus: number | undefined
+  /** Raw `Retry-After` header value, when the response carried one. */
+  retryAfter: string | null
   /** Network-level failure (DNS, timeout, reset). */
   networkError: boolean
 }
-
-const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504])
 
 /**
  * IndexNow response classification:
@@ -21,6 +21,8 @@ const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504])
  * - 429 / 5xx / network -> retry with backoff
  * - 400 / 403 / 422 etc. -> permanent failure (bad request, invalid key,
  *                          URLs not matching the host); retrying cannot help
+ *
+ * Unexpected answers (1xx, 3xx) are never treated as success.
  *
  * @evidence docs/REQUIREMENTS.md#delivery-semantics Encodes the IndexNow
  *           response policy: 200/202 succeed, 429/5xx/network retry, other
@@ -39,7 +41,7 @@ export function classifySubmitResult(result: RawSubmitResult): SubmissionOutcome
   if (status === 202) {
     return { kind: 'success', httpStatus: status, keyValidationPending: true }
   }
-  if (RETRYABLE_STATUSES.has(status)) {
+  if (status === 429 || (status >= 500 && status <= 599)) {
     return { kind: 'retryable', reason: `http_${status}`, httpStatus: status }
   }
   return { kind: 'permanent', reason: `http_${status}`, httpStatus: status }
