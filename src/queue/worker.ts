@@ -4,6 +4,7 @@ import type { NormalizedQueueConfig, NormalizedSite } from '../config/config.typ
 import type { PendingUrlsRepository } from '../db/repositories/pending-urls.repo.ts'
 import type { SubmissionBatchesRepository } from '../db/repositories/batches.repo.ts'
 import type { SubmissionStateRepository } from '../db/repositories/submission-state.repo.ts'
+import type { SiteStateRepository } from '../db/repositories/site-state.repo.ts'
 import type { IndexNowClient } from '../indexnow/client.ts'
 import { buildPayload } from '../indexnow/payload.ts'
 import { classifySubmitResult } from '../indexnow/response-policy.ts'
@@ -11,13 +12,14 @@ import type { Logger } from '../observability/logger.ts'
 import type { WebhookNotifier } from '../observability/notifier.ts'
 import { createUlid } from '../core/ulid.ts'
 import { createLeaseId, leaseUntil } from './lease.ts'
-import { retryDelayMs } from './retry-policy.ts'
+import { parseRetryAfterMs, retryDelayMs } from './retry-policy.ts'
 
 export interface QueueWorkerDeps {
   db: Database
   pendingUrls: PendingUrlsRepository
   submissionState: SubmissionStateRepository
   batches: SubmissionBatchesRepository
+  siteState: SiteStateRepository
   queue: NormalizedQueueConfig
   client: IndexNowClient
   logger: Logger
@@ -56,6 +58,11 @@ export async function drainSite(
   while (!isStopped()) {
     const now = Date.now()
     if (!deps.pendingUrls.hasDueWork(site.host, now)) break
+    // Re-checked before every claim: a pause or a server-asked cooldown that
+    // arrived mid-drain stops the NEXT batch; an in-flight HTTP call still
+    // finishes.
+    if (deps.siteState.isPaused(site.host)) break
+    if (deps.siteState.retryNotBefore(site.host) > now) break
 
     // Delivery start: claim and audit row land atomically.
     const leaseId = createLeaseId()
@@ -122,7 +129,10 @@ export async function drainSite(
 
     if (outcome.kind === 'retryable') {
       const finishedAt = Date.now()
-      const retryAt = finishedAt + retryDelayMs(attempt, deps.queue)
+      // The server's Retry-After (when parseable) wins over our own backoff,
+      // and backoffMaxMs never shortens it - it caps only our own delay.
+      const serverWaitMs = parseRetryAfterMs(raw.retryAfter, finishedAt) ?? 0
+      const retryAt = finishedAt + Math.max(retryDelayMs(attempt, deps.queue), serverWaitMs)
       const { retried, dead } = deps.db.transaction(() => {
         const applied = deps.pendingUrls.failLeased(
           site.host,
@@ -132,7 +142,16 @@ export async function drainSite(
           errorMessage,
           deps.queue.maxAttempts,
         )
-        deps.batches.markRetry(batchId, retryAt, outcome.httpStatus, errorMessage, finishedAt)
+        // A retryable failure cools down the whole site, not just these
+        // URLs: more batches to the same host would draw more 429/5xx.
+        deps.siteState.extendRetryNotBefore(site.host, retryAt, finishedAt)
+        if (applied.retried > 0) {
+          deps.batches.markRetry(batchId, retryAt, outcome.httpStatus, errorMessage, finishedAt)
+        } else {
+          // Every URL exhausted its budget: this batch produced dead
+          // letters, not a scheduled retry.
+          deps.batches.markDead(batchId, outcome.httpStatus, errorMessage, finishedAt)
+        }
         return applied
       })()
 
@@ -145,9 +164,9 @@ export async function drainSite(
           httpStatus: outcome.httpStatus,
         })
       }
-      result.batchesRetried += 1
-      if (dead > 0) result.batchesDead += 1
-      deps.logger.warn('indexnow batch failed; will retry', {
+      result.batchesRetried += retried > 0 ? 1 : 0
+      result.batchesDead += dead > 0 ? 1 : 0
+      deps.logger.warn('indexnow batch failed; site cooling down', {
         site: site.host,
         batchId,
         urls: claimed.length,
@@ -155,7 +174,11 @@ export async function drainSite(
         dead,
         reason: outcome.reason,
         retryInMs: retryAt - Date.now(),
+        serverWaitMs,
       })
+      // End this drain: the concurrency slot must not immediately start the
+      // site's next batch against the cooldown.
+      break
     } else {
       const finishedAt = Date.now()
       const dead = deps.db.transaction(() => {

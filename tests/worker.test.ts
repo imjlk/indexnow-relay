@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test'
+import { mkdirSync } from 'node:fs'
 
+import type { SiteConfigInput } from '../src/config/config.types.ts'
 import type { FetchLike } from '../src/indexnow/client.ts'
 import { IndexNowClient } from '../src/indexnow/client.ts'
 import { USER_AGENT } from '../src/version.ts'
@@ -62,6 +64,7 @@ function manualDrain(a: RelayApp, fetch: FetchLike, isStopped: () => boolean = (
       pendingUrls: a.pendingUrls,
       submissionState: a.submissionState,
       batches: a.batches,
+      siteState: a.siteState,
       queue: a.config.queue,
       client: new IndexNowClient({
         endpoint: a.config.indexnowEndpoint,
@@ -105,9 +108,7 @@ const apps: RelayApp[] = []
 function track(a: RelayApp): RelayApp {
   apps.push(a)
   return a
-}
-
-afterEach(async () => {
+}afterEach(async () => {
   for (const a of apps.splice(0)) {
     await closeApp(a)
   }
@@ -434,5 +435,183 @@ describe('in-flight resubmission preservation', () => {
     expect(row.lease_id).toBe('lease-2')
     expect(row.revision).toBe(2)
     expect(row.attempts).toBe(0)
+  })
+})
+
+describe('Retry-After and per-site cooldowns', () => {
+  const url = (path: string): string => `https://www.example.com/${path}`
+
+  function coolDownApp(respond: () => Response, sites?: Record<string, SiteConfigInput>) {
+    const { fetch, calls } = recordingFetch(respond)
+    const a = track(createTestApp({ fetchImpl: fetch, ...(sites === undefined ? {} : { sites }) }))
+    return { a, calls }
+  }
+
+  test('a Retry-After in seconds parks the site and the URL', async () => {
+    const sentAt = Date.now()
+    const { a, calls } = coolDownApp(() => new Response('', { status: 429, headers: { 'retry-after': '60' } }))
+    a.scheduler.start()
+
+    a.enqueue.submit(findToken(a.config.auth.tokens, ADMIN_TOKEN)!, [url('a')], undefined)
+    await waitFor(() => calls.length === 1, 3000, 'first 429')
+
+    // own backoff (5-20ms in the test config) would have retried long ago
+    await Bun.sleep(200)
+    expect(calls).toHaveLength(1)
+
+    const row = a.pendingUrls.get(WWW_HOST, url('a'))!
+    expect(row.status).toBe('pending')
+    expect(row.due_at).toBeGreaterThanOrEqual(sentAt + 60_000 - 1_000)
+    expect(row.not_before_at).toBe(row.due_at)
+    expect(a.siteState.retryNotBefore(WWW_HOST)).toBeGreaterThanOrEqual(sentAt + 60_000 - 1_000)
+  })
+
+  test('a Retry-After HTTP date parks the site until that date', async () => {
+    const sentAt = Date.now()
+    const waitUntil = new Date(sentAt + 120_000).toUTCString()
+    const { a, calls } = coolDownApp(() => new Response('', { status: 429, headers: { 'retry-after': waitUntil } }))
+    a.scheduler.start()
+
+    a.enqueue.submit(findToken(a.config.auth.tokens, ADMIN_TOKEN)!, [url('a')], undefined)
+    await waitFor(() => calls.length === 1, 3000, 'first 429')
+    await Bun.sleep(150)
+
+    expect(calls).toHaveLength(1)
+    expect(a.pendingUrls.get(WWW_HOST, url('a'))!.due_at).toBeGreaterThanOrEqual(sentAt + 120_000 - 1_000)
+  })
+
+  test('an unparseable Retry-After falls back to the own backoff', async () => {
+    let attempts = 0
+    const { a, calls } = coolDownApp(() => {
+      attempts += 1
+      return attempts === 1
+        ? new Response('', { status: 429, headers: { 'retry-after': 'in a bit' } })
+        : new Response('', { status: 200 })
+    })
+    a.scheduler.start()
+
+    a.enqueue.submit(findToken(a.config.auth.tokens, ADMIN_TOKEN)!, [url('a')], undefined)
+    await waitFor(() => calls.length === 2, 3000, 'own-backoff retry')
+    expect(a.pendingUrls.queueDepths().length).toBe(0)
+  })
+
+  test('other due URLs of a cooling site wait too; other sites proceed', async () => {
+    const { a, calls } = coolDownApp(() => new Response('', { status: 429, headers: { 'retry-after': '60' } }), {
+      [WWW_HOST]: { key: WWW_KEY, batchSize: 1 },
+      [BLOG_HOST]: { key: BLOG_KEY, keyPath: '/.well-known/{key}.txt', batchSize: 2 },
+    })
+    a.scheduler.start()
+
+    const token = findToken(a.config.auth.tokens, ADMIN_TOKEN)!
+    a.enqueue.submit(token, [url('a'), url('b')], undefined)
+    a.enqueue.submit(token, ['https://blog.example.com/x'], undefined)
+
+    await waitFor(() => calls.length === 2, 3000, 'first www batch and the blog batch')
+    await Bun.sleep(200)
+
+    const wwwCalls = calls.filter((c) => c.body.host === WWW_HOST)
+    const blogCalls = calls.filter((c) => c.body.host === BLOG_HOST)
+    expect(wwwCalls).toHaveLength(1)
+    expect(blogCalls).toHaveLength(1)
+
+    const pending = new Map(a.pendingUrls.listQueue(WWW_HOST, 'pending', 10).map((row) => [row.url, row]))
+    expect(pending.size).toBe(2)
+    // the failed URL carries the server wait; the unsent URL is merely
+    // parked behind the site-level cooldown
+    expect(pending.get(url('a'))!.due_at).toBeGreaterThanOrEqual(Date.now() + 55_000)
+    expect(pending.get(url('b'))!.due_at).toBeLessThanOrEqual(Date.now())
+    expect(a.siteState.retryNotBefore(WWW_HOST)).toBeGreaterThan(Date.now())
+  })
+
+  test('a site cooldown survives a process restart', async () => {
+    const dir = `${process.env.TMPDIR ?? '/tmp'}/indexnow-relay-restart-${crypto.randomUUID()}`
+    const dbPath = `${dir}/relay.db`
+    mkdirSync(dir, { recursive: true })
+
+    const first = recordingFetch(() => new Response('', { status: 429, headers: { 'retry-after': '60' } }))
+    const a = createTestApp({ fetchImpl: first.fetch, databasePath: dbPath })
+    a.scheduler.start()
+    a.enqueue.submit(findToken(a.config.auth.tokens, ADMIN_TOKEN)!, [url('a')], undefined)
+    await waitFor(() => first.calls.length === 1, 3000, 'first 429')
+    await closeApp(a)
+
+    const second = recordingFetch(() => new Response('', { status: 200 }))
+    const b = track(createTestApp({ fetchImpl: second.fetch, databasePath: dbPath }))
+    b.scheduler.start()
+    await Bun.sleep(250)
+
+    expect(second.calls).toHaveLength(0)
+    expect(b.siteState.retryNotBefore(WWW_HOST)).toBeGreaterThan(Date.now())
+  })
+
+  test('resuming a site does not bypass its cooldown', async () => {
+    const { a, calls } = coolDownApp(() => new Response('', { status: 429, headers: { 'retry-after': '60' } }))
+    a.scheduler.start()
+
+    a.enqueue.submit(findToken(a.config.auth.tokens, ADMIN_TOKEN)!, [url('a')], undefined)
+    await waitFor(() => calls.length === 1, 3000, 'first 429')
+
+    a.siteState.setPaused(WWW_HOST, true, 'ops', Date.now())
+    a.siteState.setPaused(WWW_HOST, false, undefined, Date.now())
+    a.scheduler.wake()
+    await Bun.sleep(200)
+    expect(calls).toHaveLength(1)
+  })
+
+  test('pausing mid-drain finishes the in-flight batch and starts no new one', async () => {
+    const stepped = steppedFetch()
+    const a = track(createTestApp({
+      fetchImpl: stepped.fetch,
+      sites: { [WWW_HOST]: { key: WWW_KEY, batchSize: 1 }, [BLOG_HOST]: { key: BLOG_KEY, keyPath: '/.well-known/{key}.txt', batchSize: 2 } },
+    }))
+    a.scheduler.start()
+
+    const token = findToken(a.config.auth.tokens, ADMIN_TOKEN)!
+    a.enqueue.submit(token, [url('a'), url('b')], undefined)
+    await waitFor(() => stepped.calls.length === 1, 3000, 'first batch in flight')
+
+    a.siteState.setPaused(WWW_HOST, true, 'ops', Date.now())
+    stepped.resolveNext(200)
+    await Bun.sleep(200)
+
+    expect(stepped.calls).toHaveLength(1)
+    expect(a.pendingUrls.listQueue(WWW_HOST, 'pending', 10)).toHaveLength(1)
+  })
+
+  test('exhausted retries are not recorded as a scheduled retry', async () => {
+    const { a } = coolDownApp(() => new Response('', { status: 500 }))
+    a.scheduler.start()
+
+    a.enqueue.submit(findToken(a.config.auth.tokens, ADMIN_TOKEN)!, [url('a')], undefined)
+    await waitFor(() => a.pendingUrls.listDead(undefined, 10).length === 1, 3000, 'dead letter')
+
+    // only the first batch scheduled a retry; the exhausting batch is dead
+    const statuses = a.batches.list(undefined, 10).map((b) => b.status)
+    expect(statuses).toHaveLength(2)
+    expect(statuses.filter((s) => s === 'dead')).toHaveLength(1)
+    expect(statuses.filter((s) => s === 'retry_scheduled')).toHaveLength(1)
+  })
+
+  test('a mixed batch records the retry and dead-letters only the exhausted URL', async () => {
+    const { a, calls } = coolDownApp(() => new Response('', { status: 500 }), {
+      [WWW_HOST]: { key: WWW_KEY, batchSize: 2 }, [BLOG_HOST]: { key: BLOG_KEY, keyPath: '/.well-known/{key}.txt', batchSize: 2 },
+    })
+
+    const token = findToken(a.config.auth.tokens, ADMIN_TOKEN)!
+    a.enqueue.submit(token, [url('exhausted'), url('fresh')], undefined)
+    // one URL starts one attempt from its budget's end
+    a.db
+      .prepare('UPDATE pending_urls SET attempts = ? WHERE url = ?')
+      .run(a.config.queue.maxAttempts - 1, url('exhausted'))
+    a.scheduler.start()
+    await waitFor(() => calls.length === 1, 3000, 'batch attempted')
+
+    await waitFor(() => a.pendingUrls.listDead(undefined, 10).length === 1, 3000, 'dead letter')
+    const dead = a.pendingUrls.listDead(undefined, 10)
+    expect(dead[0]!.url).toBe(url('exhausted'))
+
+    const stillPending = a.pendingUrls.listQueue(WWW_HOST, 'pending', 10)
+    expect(stillPending.map((r) => r.url)).toEqual([url('fresh')])
+    expect(a.batches.list(undefined, 10)[0]!.status).toBe('retry_scheduled')
   })
 })

@@ -2,6 +2,7 @@ import type { Database } from 'bun:sqlite'
 
 import { MIGRATION_0001 } from './migrations/0001-init.ts'
 import { MIGRATION_0002 } from './migrations/0002-delivery-cycles.ts'
+import { MIGRATION_0003 } from './migrations/0003-site-retry-wait.ts'
 
 interface Migration {
   version: number
@@ -12,6 +13,7 @@ interface Migration {
 const MIGRATIONS: readonly Migration[] = [
   { version: 1, name: 'init', statements: MIGRATION_0001 },
   { version: 2, name: 'delivery_cycles', statements: MIGRATION_0002 },
+  { version: 3, name: 'site_retry_wait', statements: MIGRATION_0003 },
 ]
 
 /**
