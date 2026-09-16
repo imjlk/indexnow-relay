@@ -154,9 +154,11 @@ export async function drainSite(
         } else {
           // The lease expired mid-flight and the sweep already requeued the
           // rows: they are pending again, so record a retry - not deaths.
+          // The effective wait is the one this transaction just persisted as
+          // the site cooldown.
           deps.batches.markRetry(
             batchId,
-            finishedAt,
+            retryAt,
             outcome.httpStatus,
             `${errorMessage}; lease expired mid-flight, rows requeued`,
             finishedAt,

@@ -35,9 +35,7 @@ const ASCTIME_PATTERN =
 const MONTH_INDEX: Record<string, number> = {
   Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
   Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11,
-}
-
-/**
+}/**
  * Parses a `Retry-After` header (RFC 9110: non-negative integer seconds or
  * an HTTP-date, always UTC) into a delay in milliseconds. Returns undefined
  * when the header is absent, malformed (negative, fractional, non-date), or
@@ -66,12 +64,15 @@ function asctimeUtcMs(raw: string): number | undefined {
   const match = ASCTIME_PATTERN.exec(raw)
   if (match === null) return undefined
   const [, month, day, hours, minutes, seconds, year] = match
-  return Date.UTC(
-    Number(year),
-    MONTH_INDEX[month!]!,
-    Number(day),
-    Number(hours),
-    Number(minutes),
-    Number(seconds),
-  )
+  const dayNum = Number(day)
+  const hourNum = Number(hours)
+  const minuteNum = Number(minutes)
+  const secondNum = Number(seconds)
+  // Date.UTC would silently normalize out-of-range fields into a far-off
+  // timestamp (hour 99 becomes +4 days); RFC 9110 caps them instead. Second
+  // 60 is a valid leap second and normalizes to the next minute.
+  if (dayNum < 1 || dayNum > 31 || hourNum > 23 || minuteNum > 59 || secondNum > 60) {
+    return undefined
+  }
+  return Date.UTC(Number(year), MONTH_INDEX[month!]!, dayNum, hourNum, minuteNum, secondNum)
 }

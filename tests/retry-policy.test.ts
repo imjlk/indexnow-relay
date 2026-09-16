@@ -60,6 +60,16 @@ describe('parseRetryAfterMs', () => {
       Date.UTC(2028, 10, 6, 8, 49, 37) - NOW,
     )
     expect(parseRetryAfterMs('Sun Nov  6 08:49:37 2028', Date.UTC(2028, 10, 6, 8, 48, 37))).toBe(60_000)
+    // leap second 60 is valid and rolls into the next minute
+    expect(parseRetryAfterMs('Sun Nov  6 08:48:60 2028', Date.UTC(2028, 10, 6, 8, 48, 0))).toBe(60_000)
+  })
+
+  test('rejects out-of-range asctime fields instead of normalizing them', () => {
+    expect(parseRetryAfterMs('Wed Sep 16 99:00:00 2026', Date.UTC(2026, 8, 16))).toBeUndefined()
+    expect(parseRetryAfterMs('Wed Sep 16 12:99:00 2026', Date.UTC(2026, 8, 16))).toBeUndefined()
+    expect(parseRetryAfterMs('Wed Sep 16 12:00:99 2026', Date.UTC(2026, 8, 16))).toBeUndefined()
+    expect(parseRetryAfterMs('Wed Sep 39 12:00:00 2026', Date.UTC(2026, 8, 16))).toBeUndefined()
+    expect(parseRetryAfterMs('Wed Sep  0 12:00:00 2026', Date.UTC(2026, 8, 16))).toBeUndefined()
   })
 })
 

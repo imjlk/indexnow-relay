@@ -607,6 +607,7 @@ describe('Retry-After and per-site cooldowns', () => {
     const batch = a.batches.list(undefined, 10)[0]!
     expect(batch.status).toBe('retry_scheduled')
     expect(batch.error_message).toContain('lease expired')
+    expect(batch.retry_at).toBe(a.siteState.retryNotBefore(WWW_HOST))
 
     // the stale worker's failure must not have touched the reclaimed rows
     const row = a.pendingUrls.get(WWW_HOST, url('a'))!
