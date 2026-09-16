@@ -96,22 +96,34 @@ describe('EnqueueService.submit', () => {
   test('repeated resubmissions merge into the deferred reservation without postponing it', () => {
     const a = app()
     const token = adminTokenOf(a)
-    const sentAt = Date.now()
+    const interval = a.config.sites['www.example.com']!.minResubmitIntervalMs
+    const realNow = Date.now
+    const sentAt = realNow()
+    let clock = sentAt
+    Date.now = () => clock
+    try {
+      a.submissionState.recordSent('www.example.com', ['https://www.example.com/a'], sentAt)
 
-    a.submissionState.recordSent('www.example.com', ['https://www.example.com/a'], sentAt)
+      const first = a.enqueue.submit(token, ['https://www.example.com/a'], undefined)
+      expect(first.enqueued).toBe(1)
+      const reservedUntil = a.pendingUrls.get('www.example.com', 'https://www.example.com/a')!.due_at
+      expect(reservedUntil).toBe(sentAt + interval)
 
-    const first = a.enqueue.submit(token, ['https://www.example.com/a'], undefined)
-    expect(first.enqueued).toBe(1)
-    const reservedUntil = a.pendingUrls.get('www.example.com', 'https://www.example.com/a')!.due_at
+      // later arrivals inside the interval must merge, not re-anchor the
+      // reservation to their own (later) clock
+      clock = sentAt + Math.floor(interval / 3)
+      const second = a.enqueue.submit(token, ['https://www.example.com/a'], undefined)
+      clock = sentAt + Math.floor(interval * 2 / 3)
+      const third = a.enqueue.submit(token, ['https://www.example.com/a'], undefined)
+      expect(second.coalesced + third.coalesced).toBe(2)
 
-    const second = a.enqueue.submit(token, ['https://www.example.com/a'], undefined)
-    const third = a.enqueue.submit(token, ['https://www.example.com/a'], undefined)
-    expect(second.coalesced + third.coalesced).toBe(2)
-
-    const rows = a.pendingUrls.listQueue('www.example.com', 'pending', 10)
-    expect(rows).toHaveLength(1)
-    expect(rows[0]!.due_at).toBe(reservedUntil)
-    expect(rows[0]!.revision).toBe(3)
+      const rows = a.pendingUrls.listQueue('www.example.com', 'pending', 10)
+      expect(rows).toHaveLength(1)
+      expect(rows[0]!.due_at).toBe(reservedUntil)
+      expect(rows[0]!.revision).toBe(3)
+    } finally {
+      Date.now = realNow
+    }
   })
 
   test('the resubmit window boundary decides between deferral and a normal batch', () => {

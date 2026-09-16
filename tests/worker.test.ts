@@ -437,6 +437,38 @@ describe('in-flight resubmission preservation', () => {
     expect(row.lease_id).toBeNull()
   })
 
+  test('a recent success never suppresses a resubmission of an in-flight row', async () => {
+    const stepped = steppedFetch()
+    const a = track(createTestApp({ fetchImpl: stepped.fetch }))
+    const token = findToken(a.config.auth.tokens, ADMIN_TOKEN)!
+    const interval = a.config.sites[WWW_HOST]!.minResubmitIntervalMs
+    const url = 'https://www.example.com/a'
+    let stop = false
+
+    a.enqueue.submit(token, [url], undefined)
+    const draining = manualDrain(a, stepped.fetch, () => stop)
+    await waitFor(() => stepped.calls.length === 1, 3000, 'batch in flight')
+
+    // a recent success for this URL exists while the row is leased
+    const sentAt = Date.now()
+    a.submissionState.recordSent(WWW_HOST, [url], sentAt)
+    expect(Date.now()).toBeLessThan(sentAt + interval)
+
+    const again = a.enqueue.submit(token, [url], 'updated')
+    expect(again.coalesced).toBe(1)
+    expect(again.enqueued).toBe(0)
+    expect(a.pendingUrls.get(WWW_HOST, url)!.revision).toBe(2)
+
+    stop = true
+    stepped.resolveNext(200)
+    await draining
+
+    const row = a.pendingUrls.get(WWW_HOST, url)!
+    expect(row.status).toBe('pending')
+    expect(row.revision).toBe(2)
+    expect(row.not_before_at).toBeGreaterThan(Date.now())
+  })
+
   test('an expired lease completed late does not touch the new lease', () => {
     const a = track(createTestApp())
     const url = 'https://www.example.com/a'
