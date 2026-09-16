@@ -76,7 +76,7 @@ export async function drainSite(
     const outcome = classifySubmitResult(raw)
 
     if (outcome.kind === 'success') {
-      deps.pendingUrls.deleteLeased(site.host, leaseId)
+      deps.pendingUrls.deleteLeased(site.host, leaseId, claimed)
       deps.submissionState.recordSent(site.host, claimed.map((row) => row.url), Date.now())
       deps.batches.markSucceeded(batchId, outcome.httpStatus, Date.now())
       result.batchesSucceeded += 1

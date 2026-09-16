@@ -7,7 +7,9 @@ export interface PendingUrlRow {
   first_seen_at: number
   last_seen_at: number
   due_at: number
+  not_before_at: number
   attempts: number
+  revision: number
   lease_id: string | null
   lease_until: number | null
   last_receipt_id: string | null
@@ -19,6 +21,8 @@ export interface ClaimedUrl {
   url: string
   event_type: string | null
   attempts: number
+  /** Revision at claim time; a higher value later means the row changed mid-flight. */
+  revision: number
 }
 
 export interface QueueDepth {
@@ -66,7 +70,11 @@ export class PendingUrlsRepository {
     return result.changes > 0
   }
 
-  /** A resubmission arrived while the URL is still pending: coalesce it. */
+  /**
+   * A resubmission arrived while the URL is still pending (leased or not):
+   * coalesce it. Bumps `revision` so an in-flight worker can detect the newer
+   * change, and never pulls `due_at` below the `not_before_at` floor.
+   */
   coalesceTouch(
     siteHost: string,
     url: string,
@@ -74,16 +82,19 @@ export class PendingUrlsRepository {
     batchWindowMs: number,
     maxCoalesceDelayMs: number,
     receiptId: string,
+    eventType: string | undefined,
   ): void {
     this.#db
       .query(
         `UPDATE pending_urls
          SET last_seen_at = ?,
              last_receipt_id = ?,
-             due_at = MIN(due_at, ? + ?, first_seen_at + ?)
+             event_type = COALESCE(?, event_type),
+             revision = revision + 1,
+             due_at = MAX(not_before_at, MIN(due_at, ? + ?, first_seen_at + ?))
          WHERE site_host = ? AND url = ? AND status = 'pending'`,
       )
-      .run(now, receiptId, now, batchWindowMs, maxCoalesceDelayMs, siteHost, url)
+      .run(now, receiptId, eventType ?? null, now, batchWindowMs, maxCoalesceDelayMs, siteHost, url)
   }
 
   /** A dead URL was resubmitted: revive it as pending with fresh attempts. */
@@ -93,6 +104,7 @@ export class PendingUrlsRepository {
         `UPDATE pending_urls
          SET status = 'pending', attempts = 0, last_error = NULL,
              first_seen_at = ?, last_seen_at = ?, due_at = ?, last_receipt_id = ?,
+             revision = 1, not_before_at = 0,
              lease_id = NULL, lease_until = NULL
          WHERE site_host = ? AND url = ? AND status = 'dead'`,
       )
@@ -147,23 +159,67 @@ export class PendingUrlsRepository {
 
       return this.#db
         .query<ClaimedUrl, [string, string]>(
-          'SELECT url, event_type, attempts FROM pending_urls WHERE site_host = ? AND lease_id = ?',
+          'SELECT url, event_type, attempts, revision FROM pending_urls WHERE site_host = ? AND lease_id = ?',
         )
         .all(siteHost, leaseId)
     })()
   }
 
-  /** Removes successfully submitted rows leased by this lease. */
-  deleteLeased(siteHost: string, leaseId: string): number {
-    const result = this.#db
-      .query('DELETE FROM pending_urls WHERE site_host = ? AND lease_id = ?')
-      .run(siteHost, leaseId)
-    return result.changes
+  /**
+   * Removes successfully submitted rows leased by this lease, but only while
+   * their `revision` still matches the claim-time snapshot. Rows resubmitted
+   * while in flight (higher revision) are left leased for
+   * {@link PendingUrlsRepository.releaseFollowUps} instead of being deleted.
+   */
+  deleteLeased(siteHost: string, leaseId: string, claimed: readonly ClaimedUrl[]): number {
+    const statement = this.#db.query(
+      'DELETE FROM pending_urls WHERE site_host = ? AND lease_id = ? AND url = ? AND revision = ?',
+    )
+    return this.#db.transaction(() => {
+      let deleted = 0
+      for (const row of claimed) {
+        deleted += statement.run(siteHost, leaseId, row.url, row.revision).changes
+      }
+      return deleted
+    })()
+  }
+
+  /**
+   * Releases rows that were resubmitted while in flight (their `revision`
+   * passed the claim-time snapshot). The successful send is behind us, so the
+   * follow-up change starts a fresh delivery cycle: attempts and last error
+   * reset, and the cycle is anchored to the follow-up's receipt time so
+   * `first_seen_at <= last_seen_at` keeps holding. Returns the follow-up URLs.
+   */
+  releaseFollowUps(
+    siteHost: string,
+    leaseId: string,
+    claimed: readonly ClaimedUrl[],
+    batchWindowMs: number,
+  ): string[] {
+    const statement = this.#db.query(
+      `UPDATE pending_urls
+       SET lease_id = NULL, lease_until = NULL, attempts = 0, last_error = NULL,
+           first_seen_at = last_seen_at,
+           due_at = MAX(not_before_at, last_seen_at + ?)
+       WHERE site_host = ? AND lease_id = ? AND url = ? AND revision > ?`,
+    )
+    return this.#db.transaction(() => {
+      const followUps: string[] = []
+      for (const row of claimed) {
+        if (statement.run(batchWindowMs, siteHost, leaseId, row.url, row.revision).changes > 0) {
+          followUps.push(row.url)
+        }
+      }
+      return followUps
+    })()
   }
 
   /**
    * Releases a failed lease. Rows that exhausted `maxAttempts` become dead
    * letters; the rest stay pending with a new `due_at` and bumped attempts.
+   * The retry wait becomes the row's delivery floor: later coalescing may not
+   * reschedule it earlier.
    */
   failLeased(
     siteHost: string,
@@ -178,19 +234,19 @@ export class PendingUrlsRepository {
         .query(
           `UPDATE pending_urls
            SET lease_id = NULL, lease_until = NULL, attempts = attempts + 1,
-               due_at = ?, last_error = ?
+               due_at = ?, not_before_at = ?, last_error = ?
            WHERE site_host = ? AND lease_id = ? AND attempts + 1 < ?`,
         )
-        .run(retryAt, errorMessage, siteHost, leaseId, maxAttempts).changes
+        .run(retryAt, retryAt, errorMessage, siteHost, leaseId, maxAttempts).changes
 
       const dead = this.#db
         .query(
           `UPDATE pending_urls
            SET lease_id = NULL, lease_until = NULL, attempts = attempts + 1,
-               due_at = ?, last_error = ?, status = 'dead'
+               due_at = 0, not_before_at = 0, last_error = ?, status = 'dead'
            WHERE site_host = ? AND lease_id = ?`,
         )
-        .run(0, errorMessage, siteHost, leaseId).changes
+        .run(errorMessage, siteHost, leaseId).changes
 
       return { retried, dead }
     })()
@@ -202,7 +258,7 @@ export class PendingUrlsRepository {
       .query(
         `UPDATE pending_urls
          SET lease_id = NULL, lease_until = NULL, attempts = attempts + 1,
-             last_error = ?, status = 'dead', last_seen_at = ?
+             not_before_at = 0, last_error = ?, status = 'dead', last_seen_at = ?
          WHERE site_host = ? AND lease_id = ?`,
       )
       .run(errorMessage, now, siteHost, leaseId)
@@ -302,13 +358,15 @@ export class PendingUrlsRepository {
     siteHost: string | undefined,
     urls: string[] | undefined,
   ): number {
+    const cycle = `status = 'pending', attempts = 0, last_error = NULL, due_at = ?,
+               revision = 1, not_before_at = 0,
+               lease_id = NULL, lease_until = NULL, last_seen_at = ?`
     if (urls !== undefined && urls.length > 0) {
       const placeholders = urls.map(() => '?').join(', ')
       return this.#db
         .query(
           `UPDATE pending_urls
-           SET status = 'pending', attempts = 0, last_error = NULL, due_at = ?,
-               lease_id = NULL, lease_until = NULL, last_seen_at = ?
+           SET ${cycle}
            WHERE status = 'dead' ${siteHost === undefined ? '' : 'AND site_host = ?'} AND url IN (${placeholders})`,
         )
         .run(dueAt, now, ...(siteHost === undefined ? [] : [siteHost]), ...urls).changes
@@ -318,8 +376,7 @@ export class PendingUrlsRepository {
       return this.#db
         .query(
           `UPDATE pending_urls
-           SET status = 'pending', attempts = 0, last_error = NULL, due_at = ?,
-               lease_id = NULL, lease_until = NULL, last_seen_at = ?
+           SET ${cycle}
            WHERE status = 'dead'`,
         )
         .run(dueAt, now).changes
@@ -328,8 +385,7 @@ export class PendingUrlsRepository {
     return this.#db
       .query(
         `UPDATE pending_urls
-         SET status = 'pending', attempts = 0, last_error = NULL, due_at = ?,
-             lease_id = NULL, lease_until = NULL, last_seen_at = ?
+         SET ${cycle}
          WHERE status = 'dead' AND site_host = ?`,
       )
       .run(dueAt, now, siteHost).changes

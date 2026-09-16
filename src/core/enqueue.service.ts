@@ -145,6 +145,7 @@ export class EnqueueService {
               queue.batchWindowMs,
               queue.maxCoalesceDelayMs,
               receiptId,
+              event,
             )
             coalesced += 1
           } else {

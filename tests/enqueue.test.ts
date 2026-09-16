@@ -86,6 +86,53 @@ describe('EnqueueService.submit', () => {
     expect(again.enqueued).toBe(0)
   })
 
+  test('bumps revision per resubmission, even within the same millisecond', () => {
+    const a = app()
+    const token = adminTokenOf(a)
+    const first = a.enqueue.submit(token, ['https://www.example.com/a'], 'created')
+    const second = a.enqueue.submit(token, ['https://www.example.com/a'], 'created')
+
+    const row = a.pendingUrls.get('www.example.com', 'https://www.example.com/a')!
+    expect(row.revision).toBe(2)
+    expect(row.last_receipt_id).toBe(second.receiptId)
+    expect(row.last_receipt_id).not.toBe(first.receiptId)
+  })
+
+  test('updates event metadata on resubmit and keeps it when omitted', () => {
+    const a = app()
+    const token = adminTokenOf(a)
+    a.enqueue.submit(token, ['https://www.example.com/a'], 'created')
+    a.enqueue.submit(token, ['https://www.example.com/a'], 'updated')
+    expect(a.pendingUrls.get('www.example.com', 'https://www.example.com/a')!.event_type).toBe('updated')
+
+    a.enqueue.submit(token, ['https://www.example.com/a'], undefined)
+    expect(a.pendingUrls.get('www.example.com', 'https://www.example.com/a')!.event_type).toBe('updated')
+  })
+
+  test('resubmission during a retry wait does not shorten the wait', () => {
+    const a = app()
+    const token = adminTokenOf(a)
+    a.enqueue.submit(token, ['https://www.example.com/a'], undefined)
+
+    // simulate a retryable failure: claim the URL, then fail with a far-future retryAt
+    const claimed = a.pendingUrls.claimDue('www.example.com', Date.now(), 10, 'lease-1', Date.now() + 60_000)
+    expect(claimed).toHaveLength(1)
+    const retryAt = Date.now() + 3_600_000
+    a.pendingUrls.failLeased('www.example.com', 'lease-1', Date.now(), retryAt, 'http_503', 10)
+
+    const again = a.enqueue.submit(token, ['https://www.example.com/a'], 'updated')
+    expect(again.coalesced).toBe(1)
+    expect(again.enqueued).toBe(0)
+
+    const row = a.pendingUrls.get('www.example.com', 'https://www.example.com/a')!
+    expect(row.due_at).toBe(retryAt)
+    expect(row.not_before_at).toBe(retryAt)
+    // a stream of resubmissions must not buy the URL a fresh retry budget
+    expect(row.attempts).toBe(1)
+    expect(row.revision).toBe(2)
+    expect(row.event_type).toBe('updated')
+  })
+
   test('rejects invalid URLs without writing anything (all-or-nothing)', () => {
     const a = app()
     const invalid = capture(() => a.enqueue.submit(adminTokenOf(a), ['https://www.example.com/a', 'ftp://nope/'], undefined))
