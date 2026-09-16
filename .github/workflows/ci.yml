@@ -34,30 +34,8 @@ jobs:
       - name: Build production bundle
         run: bun run build
 
-      - name: Smoke test the built server
-        run: |
-          cat > relay.config.ts <<'EOF'
-          import { defineConfig, env } from './dist/config/index.js'
-
-          export default defineConfig({
-            auth: env('INDEXNOW_RELAY_TOKEN'),
-            sites: { 'www.example.com': env('INDEXNOW_KEY_WWW_EXAMPLE_COM') },
-          })
-          EOF
-          export INDEXNOW_RELAY_TOKEN=ci-token-0000000000001
-          export INDEXNOW_KEY_WWW_EXAMPLE_COM=a1b2c3d4e5f60718
-          export PORT=3199
-          bun dist/server.js &
-          SERVER_PID=$!
-          sleep 2
-          curl -fsS http://localhost:3199/healthz > /dev/null
-          curl -fsS http://localhost:3199/readyz > /dev/null
-          curl -fsS http://localhost:3199/openapi.json > /dev/null
-          curl -fsS -X POST http://localhost:3199/v1/urls \
-            -H "Authorization: Bearer $INDEXNOW_RELAY_TOKEN" \
-            -H 'content-type: application/json' \
-            -d '{"urls":["https://www.example.com/ci-smoke"]}' | grep -q receiptId
-          kill $SERVER_PID
+      - name: Smoke test deployment boundaries (env config, restart, db upgrade, conflict, alt port)
+        run: bash scripts/ci-smoke.sh dist
 
       - uses: actions/upload-artifact@v4
         with:
@@ -74,9 +52,48 @@ jobs:
       - uses: docker/setup-buildx-action@v3
 
       - name: Build image (no push)
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
           push: false
+          load: true
+          tags: indexnow-relay:smoke
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Smoke test the built image (env config, PORT, healthcheck port parity)
+        run: |
+          # a stand-in IndexNow endpoint on the runner host
+          python3 - <<'PY' &
+          import http.server, socketserver
+          class OK(http.server.BaseHTTPRequestHandler):
+              def do_POST(self):
+                  self.send_response(200); self.end_headers()
+              def log_message(self, *args): pass
+          with socketserver.TCPServer(("127.0.0.1", 3188), OK) as httpd:
+              httpd.serve_forever()
+          PY
+          STUB_PID=$!
+          sleep 1
+
+          docker run -d --name relay-smoke --network host \
+            -e INDEXNOW_SITES='{"www.example.com":"a1b2c3d4e5f60718"}' \
+            -e INDEXNOW_RELAY_TOKEN=ci-token-0000000000001 \
+            -e INDEXNOW_ENDPOINT='http://127.0.0.1:3188/indexnow' \
+            -e PORT=3213 \
+            indexnow-relay:smoke
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:3213/healthz > /dev/null 2>&1 && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:3213/readyz > /dev/null
+          curl -fsS -X POST http://127.0.0.1:3213/v1/urls \
+            -H "Authorization: Bearer ci-token-0000000000001" \
+            -H 'content-type: application/json' \
+            -d '{"urls":["https://www.example.com/image-smoke"]}' | grep -q receiptId
+          # the image healthcheck probes the same PORT the server listens on
+          sleep 12
+          [ "$(docker inspect -f '{{.State.Health.Status}}' relay-smoke)" = "healthy" ]
+          docker rm -f relay-smoke
+          kill $STUB_PID
