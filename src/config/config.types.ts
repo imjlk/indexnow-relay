@@ -13,6 +13,13 @@ export interface EnvSecretReference {
 /** Either an environment reference or a literal value (dev convenience). */
 export type SecretValue = EnvSecretReference | string
 
+/**
+ * URLs per IndexNow request. The protocol caps one request at 10,000 URLs;
+ * every path that sets a batch size (per-site, site defaults, queue default)
+ * accepts integers in that range only.
+ */
+export type BatchSize = number & tags.Minimum<1> & tags.Maximum<10_000>
+
 export interface SiteAdvancedConfig {
   /** IndexNow key for this host (8–128 letters, digits, or hyphens; stored verbatim). */
   key: SecretValue
@@ -24,7 +31,7 @@ export interface SiteAdvancedConfig {
    */
   keyPath?: string
   /** Max URLs per IndexNow request for this site. Default: 1000 */
-  batchSize?: number & tags.Minimum<1> & tags.Maximum<10_000>
+  batchSize?: BatchSize
   /** Minimum interval before the same URL is resubmitted. Default: 300_000 */
   minResubmitIntervalMs?: number & tags.Minimum<0>
   /** Set to false to stop submitting for this site. Default: true */
@@ -35,8 +42,9 @@ export type SiteConfigInput = SecretValue | SiteAdvancedConfig
 
 export interface SiteDefaults {
   keyPath?: string
-  batchSize?: number
-  minResubmitIntervalMs?: number
+  batchSize?: BatchSize
+  /** Finite, non-negative milliseconds. */
+  minResubmitIntervalMs?: number & tags.Minimum<0>
 }
 
 export interface ScopedTokenConfig {
@@ -54,7 +62,7 @@ export interface QueueConfigInput {
   batchWindowMs?: number & tags.Minimum<0>
   /** Hard cap on how long a URL can be coalesced after first sight. */
   maxCoalesceDelayMs?: number & tags.Minimum<0>
-  maxBatchSize?: number & tags.Minimum<1> & tags.Maximum<10_000>
+  maxBatchSize?: BatchSize
   maxConcurrentSites?: number & tags.Minimum<1>
   pollIntervalMs?: number & tags.Minimum<50>
   maxAttempts?: number & tags.Minimum<1>
@@ -111,7 +119,7 @@ export interface NormalizedSite {
   keyScopeDir: string
   keyLocation: string
   enabled: boolean
-  batchSize: number
+  batchSize: BatchSize
   minResubmitIntervalMs: number
 }
 
@@ -124,7 +132,7 @@ export interface NormalizedToken {
 export interface NormalizedQueueConfig {
   batchWindowMs: number
   maxCoalesceDelayMs: number
-  maxBatchSize: number
+  maxBatchSize: BatchSize
   maxConcurrentSites: number
   pollIntervalMs: number
   maxAttempts: number

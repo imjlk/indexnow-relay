@@ -512,6 +512,9 @@ describe('in-flight resubmission preservation', () => {
     expect(row.lease_id).toBe('lease-2')
     expect(row.revision).toBe(2)
     expect(row.attempts).toBe(0)
+    // queue history is not the only casualty: the stale worker must not
+    // create per-URL delivery state either
+    expect(a.submissionState.getSentAt(WWW_HOST, [url])).toEqual(new Map())
 
     // a pre-existing floor higher than the success floor keeps bounding
     // due_at even if the clock moved backwards during delivery
@@ -530,6 +533,250 @@ describe('in-flight resubmission preservation', () => {
     const floored = a.pendingUrls.get(WWW_HOST, url)!
     expect(floored.not_before_at).toBe(floorAt)
     expect(floored.due_at).toBe(floorAt)
+  })
+})
+
+describe('dead-letter retention anchoring', () => {
+  const DAY = 24 * 60 * 60 * 1000
+  const url = (path: string): string => `https://www.example.com/${path}`
+
+  test('retry exhaustion stamps the failure time, not the original submission time', () => {
+    const a = track(createTestApp())
+    const token = findToken(a.config.auth.tokens, ADMIN_TOKEN)!
+    const realNow = Date.now
+    const T = realNow()
+    Date.now = () => T
+    try {
+    a.enqueue.submit(token, [url('old')], undefined)
+    a.enqueue.submit(token, [url('mixed-pending')], undefined)
+    // received 31 days before the retry that exhausts it
+    a.db
+      .prepare('UPDATE pending_urls SET first_seen_at = ?, last_seen_at = ? WHERE url = ?')
+      .run(T - 31 * DAY, T - 31 * DAY, url('old'))
+
+    const claimed = a.pendingUrls.claimDue(WWW_HOST, T, 10, 'lease-1', T + 60_000)
+    expect(claimed).toHaveLength(2)
+    a.pendingUrls.failLeased(WWW_HOST, 'lease-1', T, T + 60_000, 'http_503', 1)
+
+    const dead = a.pendingUrls.listDead(WWW_HOST, 10).find((row) => row.url === url('old'))!
+    expect(dead.last_seen_at).toBe(T)
+
+    // the just-created dead letter survives retention at T
+    expect(a.pendingUrls.purgeOlderThan(T - 30 * DAY)).toBe(0)
+
+    // exactly 30 days later: cutoff = now - 30d = T, and last_seen < cutoff
+    // is false, so it is still retained
+    expect(a.pendingUrls.purgeOlderThan(T)).toBe(0)
+    // a moment past 30 days it is purged (both rows of this claim died)
+    expect(a.pendingUrls.purgeOlderThan(T + 1)).toBe(2)
+    } finally {
+      Date.now = realNow
+    }
+  })
+
+  test('rows that still have retries left keep their original timing', () => {
+    const a = track(createTestApp())
+    const token = findToken(a.config.auth.tokens, ADMIN_TOKEN)!
+    const realNow = Date.now
+    const T = realNow()
+    Date.now = () => T
+    try {
+    a.enqueue.submit(token, [url('will-retry')], undefined)
+    a.db
+      .prepare('UPDATE pending_urls SET first_seen_at = ?, last_seen_at = ? WHERE url = ?')
+      .run(T - 40 * DAY, T - 40 * DAY, url('will-retry'))
+
+    const claimed = a.pendingUrls.claimDue(WWW_HOST, T, 10, 'lease-1', T + 60_000)
+    expect(claimed).toHaveLength(1)
+    a.pendingUrls.failLeased(WWW_HOST, 'lease-1', T, T + 3_600_000, 'http_503', 5)
+
+    const row = a.pendingUrls.get(WWW_HOST, url('will-retry'))!
+    expect(row.status).toBe('pending')
+    expect(row.last_seen_at).toBe(T - 40 * DAY)
+    expect(a.pendingUrls.purgeOlderThan(T - 30 * DAY)).toBe(0)
+    } finally {
+      Date.now = realNow
+    }
+  })
+
+  test('a mixed batch only stamps the rows that actually died', () => {
+    const a = track(createTestApp())
+    const token = findToken(a.config.auth.tokens, ADMIN_TOKEN)!
+    const realNow = Date.now
+    const T = realNow()
+    Date.now = () => T
+    try {
+    a.enqueue.submit(token, [url('dies'), url('retries')], undefined)
+    a.db
+      .prepare('UPDATE pending_urls SET attempts = ? WHERE url = ?')
+      .run(a.config.queue.maxAttempts - 1, url('dies'))
+    const oldSeen = T - 5 * DAY
+    a.db
+      .prepare('UPDATE pending_urls SET last_seen_at = ? WHERE url = ?')
+      .run(oldSeen, url('retries'))
+
+    const claimed = a.pendingUrls.claimDue(WWW_HOST, T, 10, 'lease-1', T + 60_000)
+    expect(claimed).toHaveLength(2)
+    const { retried, dead } = a.pendingUrls.failLeased(WWW_HOST, 'lease-1', T, T + 3_600_000, 'http_503', a.config.queue.maxAttempts)
+    expect(retried).toBe(1)
+    expect(dead).toBe(1)
+
+    expect(a.pendingUrls.get(WWW_HOST, url('dies'))!.last_seen_at).toBe(T)
+    expect(a.pendingUrls.get(WWW_HOST, url('retries'))!.last_seen_at).toBe(oldSeen)
+    } finally {
+      Date.now = realNow
+    }
+  })
+
+  test('permanent failures keep their existing transition-time behavior', () => {
+    const a = track(createTestApp())
+    const token = findToken(a.config.auth.tokens, ADMIN_TOKEN)!
+    const realNow = Date.now
+    const submittedAt = realNow()
+    let clock = submittedAt
+    Date.now = () => clock
+    try {
+      a.enqueue.submit(token, [url('permanent')], undefined)
+      // fail five seconds after submission, deterministically
+      const T = submittedAt + 5_000
+      clock = T
+
+      const claimed = a.pendingUrls.claimDue(WWW_HOST, T, 10, 'lease-1', T + 60_000)
+      expect(claimed).toHaveLength(1)
+      a.pendingUrls.deadLeased(WWW_HOST, 'lease-1', T, 'http_403')
+
+      // the anchor advances from submission time to failure time
+      expect(a.pendingUrls.listDead(WWW_HOST, 10)[0]!.last_seen_at).toBe(T)
+    } finally {
+      Date.now = realNow
+    }
+  })
+})
+
+describe('ownership-scoped success handling', () => {
+  const url = (path: string): string => `https://www.example.com/${path}`
+
+  async function drainOneBatch(a: RelayApp, stepped: ReturnType<typeof steppedFetch>) {
+    let stop = false
+    const draining = manualDrain(a, stepped.fetch, () => stop)
+    await waitFor(() => stepped.calls.length >= 1, 3000, 'batch in flight')
+    return {
+      finish: async (): Promise<void> => {
+        stop = true
+        stepped.resolveNext(200)
+        await draining
+      },
+    }
+  }
+
+  test('a lease released mid-response changes neither queue nor sent state', async () => {
+    const stepped = steppedFetch()
+    const a = track(createTestApp({ fetchImpl: stepped.fetch }))
+    const token = findToken(a.config.auth.tokens, ADMIN_TOKEN)!
+
+    a.enqueue.submit(token, [url('a')], undefined)
+    const batch = await drainOneBatch(a, stepped)
+
+    // the sweep reclaims the row while the 200 is still in flight
+    a.db.prepare('UPDATE pending_urls SET lease_id = NULL, lease_until = NULL WHERE url = ?').run(url('a'))
+
+    await batch.finish()
+
+    const row = a.pendingUrls.get(WWW_HOST, url('a'))!
+    expect(row.status).toBe('pending')
+    expect(row.attempts).toBe(0)
+    expect(row.lease_id).toBeNull()
+    // no success history for a delivery this lease did not own
+    expect(a.submissionState.getSentAt(WWW_HOST, [url('a')])).toEqual(new Map())
+    // the audit row still records the HTTP outcome
+    expect(a.batches.list(undefined, 10)[0]!.status).toBe('succeeded')
+  })
+
+  test('a lease taken over by another worker preserves everything, including sent_at', async () => {
+    const stepped = steppedFetch()
+    const a = track(createTestApp({ fetchImpl: stepped.fetch }))
+    const token = findToken(a.config.auth.tokens, ADMIN_TOKEN)!
+    const originalSentAt = Date.now() - 60_000
+    const newDueAt = Date.now() + 123_000
+
+    a.enqueue.submit(token, [url('a')], undefined)
+    const batch = await drainOneBatch(a, stepped)
+
+    a.submissionState.recordSent(WWW_HOST, [url('a')], originalSentAt)
+    a.db
+      .prepare('UPDATE pending_urls SET lease_id = ?, revision = 5, due_at = ?, not_before_at = ? WHERE url = ?')
+      .run('lease-2', newDueAt, newDueAt, url('a'))
+
+    await batch.finish()
+
+    const row = a.pendingUrls.get(WWW_HOST, url('a'))!
+    expect(row.lease_id).toBe('lease-2')
+    expect(row.revision).toBe(5)
+    expect(row.due_at).toBe(newDueAt)
+    expect(row.not_before_at).toBe(newDueAt)
+    expect(a.submissionState.getSentAt(WWW_HOST, [url('a')]).get(url('a'))).toBe(originalSentAt)
+  })
+
+  test('a partially owned batch applies state only to the owned URL', async () => {
+    const stepped = steppedFetch()
+    const a = track(createTestApp({
+      fetchImpl: stepped.fetch,
+      sites: {
+        [WWW_HOST]: { key: WWW_KEY, batchSize: 2, minResubmitIntervalMs: 0 },
+        [BLOG_HOST]: { key: BLOG_KEY, batchSize: 2 },
+      },
+    }))
+    const token = findToken(a.config.auth.tokens, ADMIN_TOKEN)!
+
+    a.enqueue.submit(token, [url('owned'), url('lost')], undefined)
+    const batch = await drainOneBatch(a, stepped)
+
+    a.db.prepare('UPDATE pending_urls SET lease_id = NULL, lease_until = NULL WHERE url = ?').run(url('lost'))
+
+    await batch.finish()
+
+    expect(a.pendingUrls.get(WWW_HOST, url('owned'))).toBeNull()
+    const lost = a.pendingUrls.get(WWW_HOST, url('lost'))!
+    expect(lost.status).toBe('pending')
+    expect(lost.lease_id).toBeNull()
+
+    const sent = a.submissionState.getSentAt(WWW_HOST, [url('owned'), url('lost')])
+    expect(sent.has(url('owned'))).toBe(true)
+    expect(sent.has(url('lost'))).toBe(false)
+  })
+
+  test('a fully lost batch changes nothing in queue or sent state', async () => {
+    const stepped = steppedFetch()
+    const a = track(createTestApp({ fetchImpl: stepped.fetch }))
+    const token = findToken(a.config.auth.tokens, ADMIN_TOKEN)!
+
+    a.enqueue.submit(token, [url('a')], undefined)
+    const batch = await drainOneBatch(a, stepped)
+
+    a.db.prepare('UPDATE pending_urls SET lease_id = NULL, lease_until = NULL').run()
+
+    await batch.finish()
+
+    expect(a.pendingUrls.queueDepths()).toHaveLength(1)
+    expect(a.submissionState.getSentAt(WWW_HOST, [url('a')])).toEqual(new Map())
+    expect(a.batches.list(undefined, 10)[0]!.status).toBe('succeeded')
+  })
+
+  test('a mid-flight resubmission under the same lease keeps its follow-up and sent state', async () => {
+    const stepped = steppedFetch()
+    const a = track(createTestApp({ fetchImpl: stepped.fetch }))
+    const token = findToken(a.config.auth.tokens, ADMIN_TOKEN)!
+
+    a.enqueue.submit(token, [url('a')], undefined)
+    const batch = await drainOneBatch(a, stepped)
+    a.enqueue.submit(token, [url('a')], 'updated')
+
+    await batch.finish()
+
+    const row = a.pendingUrls.get(WWW_HOST, url('a'))!
+    expect(row.status).toBe('pending')
+    expect(row.revision).toBe(2)
+    expect(a.submissionState.getSentAt(WWW_HOST, [url('a')]).size).toBe(1)
   })
 })
 

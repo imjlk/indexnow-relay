@@ -18,7 +18,11 @@ advanced object form overrides the key file path (`keyPath`, default
 `/{key}.txt`, must contain `{key}` exactly once in its final path segment;
 queries, fragments, backslashes, encoded separators, control characters, and
 `..` segments are rejected), batch size, minimum resubmit interval, and
-enabled flag. A key file below a subdirectory limits the site to submitting
+enabled flag. Batch sizes are integers between 1 and 10,000 (the protocol's
+per-request cap) on every path that sets one — per-site, site defaults, and
+the queue default — and resubmit intervals are finite non-negative
+milliseconds; invalid values fail startup with the field's path instead of
+being corrected or reaching the scheduler. A key file below a subdirectory limits the site to submitting
 URLs under that directory (prefix including the path separator), and error
 messages never embed the key or its derived location.
 The full key location URL is derived, never repeated by the operator. Auth is
@@ -120,8 +124,12 @@ longer than `queue.maxCoalesceDelayMs` after first sight, and drains at most
 when a lease expires) stale leases and in-flight batch rows from a previous
 process are recovered and work resumes. Delivery state changes are atomic:
 claiming URLs and opening their batch audit row is one transaction, and so is
-each outcome (delete-or-keep plus sent-state plus batch close, or
-retry/dead-letter plus batch close). HTTP calls happen between transactions;
+each outcome (ownership check, delete-or-keep, sent-state, and batch close,
+or retry/dead-letter plus batch close). A success response applies per-URL
+delivery state only to claim items the finishing lease still owns — a lease
+that expired and was swept or re-claimed mid-flight changes neither the
+queue rows nor their delivery history; the batch audit row still records the
+HTTP outcome, and structured logs distinguish applied from stale URLs. HTTP calls happen between transactions;
 notifications and logging fire only after the state change commits. A
 scheduled retry sets a delivery floor that later coalescing cannot pull
 forward. IndexNow keys and bearer tokens are never stored in the database: a
@@ -142,8 +150,11 @@ manual pause but never a cooldown. After `queue.maxAttempts` total attempts
 permanent `4xx` failures dead-letter immediately. A retryable batch in which
 every URL exhausted its budget is recorded dead, not as a scheduled retry.
 Dead letters are listed via the operations API and can be requeued
-individually, per site, or all at once. Dead letters older than
-`queue.retentionDays` are purged.
+individually, per site, or all at once. A dead letter's retention anchor is
+its failure-transition time — the moment it became a dead letter, whether by
+retry exhaustion or permanent failure — not its original submission time, so
+a URL that waited out long backoffs is never purged the instant it dead
+letters. Dead letters older than `queue.retentionDays` are purged.
 
 ## Authentication and authorization
 

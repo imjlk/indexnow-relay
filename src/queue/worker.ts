@@ -96,29 +96,40 @@ export async function drainSite(
 
     if (outcome.kind === 'success') {
       const finishedAt = Date.now()
-      // Success: delete delivered rows, keep mid-flight resubmissions,
-      // record sent state, close the batch - atomically.
-      const followUps = deps.db.transaction(() => {
-        deps.pendingUrls.deleteLeased(site.host, leaseId, claimed)
+      // Success: confirm which claim items this lease still owns, delete or
+      // preserve exactly those, record sent state for exactly those, and
+      // close the batch - all atomically, with no await in between. A row
+      // whose lease expired and was swept or re-claimed mid-flight is not
+      // ours anymore: its queue state and delivery history must not move.
+      // Revision is deliberately NOT part of ownership - a higher revision
+      // under the same lease is a legitimate mid-flight resubmission.
+      const { appliedUrls, followUps } = deps.db.transaction(() => {
+        const owned = new Set(deps.pendingUrls.leasedUrls(site.host, leaseId))
+        const ownedClaims = claimed.filter((row) => owned.has(row.url))
+        deps.pendingUrls.deleteLeased(site.host, leaseId, ownedClaims)
         const kept = deps.pendingUrls.releaseFollowUps(
           site.host,
           leaseId,
-          claimed,
+          ownedClaims,
           deps.queue.batchWindowMs,
           finishedAt + site.minResubmitIntervalMs,
         )
-        deps.submissionState.recordSent(site.host, claimed.map((row) => row.url), finishedAt)
+        deps.submissionState.recordSent(site.host, ownedClaims.map((row) => row.url), finishedAt)
+        // the audit row records this HTTP outcome even when every URL lost
+        // its lease - it never claims the current queue was drained
         deps.batches.markSucceeded(batchId, outcome.httpStatus, finishedAt)
-        return kept
+        return { appliedUrls: ownedClaims.length, followUps: kept }
       })()
 
       result.batchesSucceeded += 1
-      result.urlsSubmitted += claimed.length
+      result.urlsSubmitted += appliedUrls
       result.followUpsPreserved += followUps.length
       deps.logger.info('indexnow batch submitted', {
         site: site.host,
         batchId,
         urls: claimed.length,
+        appliedUrls,
+        staleUrls: claimed.length - appliedUrls,
         httpStatus: outcome.httpStatus,
         followUpsPreserved: followUps.length,
         ...(outcome.keyValidationPending ? { keyValidationPending: true } : {}),
