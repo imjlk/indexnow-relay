@@ -67,6 +67,7 @@ export function createRouter(app: RelayApp) {
         throw domainError('NOT_FOUND', `Receipt ${input.id} does not exist.`)
       }
 
+      const pendingLastReferenced = app.pendingUrls.countPendingByReceipt(row.id)
       return {
         receiptId: row.id,
         createdAt: new Date(row.created_at).toISOString(),
@@ -74,7 +75,8 @@ export function createRouter(app: RelayApp) {
         enqueued: row.enqueued,
         coalesced: row.coalesced,
         sites,
-        stillPending: app.pendingUrls.countPendingByReceipt(row.id),
+        pendingLastReferenced,
+        stillPending: pendingLastReferenced,
       }
     }),
 
@@ -88,6 +90,7 @@ export function createRouter(app: RelayApp) {
         const sites: AdminSiteStatus[] = app.registry.all().map((site) => {
           const pending = depths.find((d) => d.site_host === site.host && d.status === 'pending')
           const dead = depths.find((d) => d.site_host === site.host && d.status === 'dead')
+          const cooldownUntil = app.siteState.retryNotBefore(site.host)
           return {
             host: site.host,
             enabled: site.enabled,
@@ -95,6 +98,7 @@ export function createRouter(app: RelayApp) {
             pending: pending?.count ?? 0,
             dead: dead?.count ?? 0,
             nextDueAt: iso(pending?.min_due_at ?? null),
+            retryNotBefore: cooldownUntil > Date.now() ? iso(cooldownUntil) : null,
           }
         })
 

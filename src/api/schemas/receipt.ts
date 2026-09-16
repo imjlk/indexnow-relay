@@ -18,7 +18,15 @@ export interface GetReceiptOutput {
   enqueued: number
   coalesced: number
   sites: SiteSubmissionSummary[]
-  /** URLs from this receipt that are still waiting to be submitted. */
+  /**
+   * Pending queue rows (including rows currently leased for delivery) whose
+   * latest receipt reference is this receipt. Zero does NOT mean the URLs
+   * were delivered: references move to newer receipts and dead-lettered
+   * URLs also leave the count. Check the admin queue/batch APIs for
+   * delivery outcomes.
+   */
+  pendingLastReferenced: number
+  /** Deprecated alias of `pendingLastReferenced`. */
   stillPending: number
 }
 

@@ -118,7 +118,8 @@ describe('GET /v1/receipts/{id}', () => {
     const found = await routeRequest(a, new Request(`${BASE}/v1/receipts/${receiptId}`, { headers: { authorization: `Bearer ${ADMIN_TOKEN}` } }))
     expect(found.status).toBe(200)
     const body = await readJson(found)
-    expect(body['stillPending']).toBe(1)
+    expect(body['pendingLastReferenced']).toBe(1)
+    expect(body['stillPending']).toBe(body['pendingLastReferenced'])
 
     const missing = await routeRequest(
       a,
@@ -144,6 +145,43 @@ describe('GET /v1/receipts/{id}', () => {
       new Request(`${BASE}/v1/receipts/${receiptId}`, { headers: { authorization: `Bearer ${BLOG_TOKEN}` } }),
     )
     expect(response.status).toBe(404)
+  })
+})
+
+describe('GET /v1/receipts/{id} counter semantics', () => {
+  test('a newer receipt moves the reference: the old count drops, the new one rises', async () => {
+    const a = track(createTestApp({ fetchImpl: neverCalledFetch(), queue: { batchWindowMs: 600_000, maxCoalesceDelayMs: 700_000 } }))
+    const headers = { 'content-type': 'application/json', authorization: `Bearer ${ADMIN_TOKEN}` }
+
+    const first = await routeRequest(a, postJson(`${BASE}/v1/urls`, { urls: [`https://${WWW_HOST}/a`] }, ADMIN_TOKEN))
+    const { receiptId: firstId } = (await readJson(first)) as { receiptId: string }
+    const second = await routeRequest(a, postJson(`${BASE}/v1/urls`, { urls: [`https://${WWW_HOST}/a`] }, ADMIN_TOKEN))
+    const { receiptId: secondId } = (await readJson(second)) as { receiptId: string }
+
+    const readCount = async (id: string): Promise<number> => {
+      const response = await routeRequest(a, new Request(`${BASE}/v1/receipts/${id}`, { headers: { authorization: `Bearer ${ADMIN_TOKEN}` } }))
+      const body = await readJson(response)
+      return body['pendingLastReferenced'] as number
+    }
+
+    // exactly one queue row exists and now references the newer receipt;
+    // the URL is still pending, so neither count is a delivery verdict
+    expect(await readCount(firstId)).toBe(0)
+    expect(await readCount(secondId)).toBe(1)
+    expect(a.pendingUrls.listQueue(WWW_HOST, 'pending', 10)).toHaveLength(1)
+  })
+
+  test('rows leased for delivery still count as pending-referenced', async () => {
+    const a = track(createTestApp({ fetchImpl: neverCalledFetch() }))
+
+    const submit = await routeRequest(a, postJson(`${BASE}/v1/urls`, { urls: [`https://${WWW_HOST}/a`] }, ADMIN_TOKEN))
+    const { receiptId } = (await readJson(submit)) as { receiptId: string }
+
+    const claimed = a.pendingUrls.claimDue(WWW_HOST, Date.now(), 10, 'lease-1', Date.now() + 60_000)
+    expect(claimed).toHaveLength(1)
+
+    const response = await routeRequest(a, new Request(`${BASE}/v1/receipts/${receiptId}`, { headers: { authorization: `Bearer ${ADMIN_TOKEN}` } }))
+    expect(((await readJson(response))['pendingLastReferenced'])).toBe(1)
   })
 })
 
@@ -177,8 +215,38 @@ describe('admin endpoints', () => {
     )
     expect(response.status).toBe(200)
     const body = await readJson(response)
-    const sites = body['sites'] as Array<{ host: string; pending: number }>
+    const sites = body['sites'] as Array<{ host: string; pending: number; retryNotBefore: string | null }>
     expect(sites.find((s) => s.host === WWW_HOST)!.pending).toBe(1)
+    // no cooldown has been set yet
+    expect(sites.find((s) => s.host === WWW_HOST)!.retryNotBefore).toBeNull()
+  })
+
+  test('overview exposes an active delivery cooldown until it passes', async () => {
+    const a = track(createTestApp({ fetchImpl: neverCalledFetch() }))
+
+    a.siteState.extendRetryNotBefore(WWW_HOST, Date.now() + 60_000, Date.now())
+    const response = await routeRequest(
+      a,
+      new Request(`${BASE}/v1/admin/overview`, { headers: { authorization: `Bearer ${ADMIN_TOKEN}` } }),
+    )
+    const body = await readJson(response)
+    const sites = body['sites'] as Array<{ host: string; retryNotBefore: string | null }>
+    const retryNotBefore = sites.find((s) => s.host === WWW_HOST)!.retryNotBefore
+    expect(retryNotBefore).not.toBeNull()
+    expect(new Date(retryNotBefore!).getTime()).toBeGreaterThan(Date.now())
+
+    // an expired cooldown reports null, not a past timestamp (the repo only
+    // extends cooldowns, so simulate time passing with a direct update)
+    a.db
+      .prepare('UPDATE site_state SET retry_not_before_at = ? WHERE site_host = ?')
+      .run(Date.now() - 1, WWW_HOST)
+    const after = await routeRequest(
+      a,
+      new Request(`${BASE}/v1/admin/overview`, { headers: { authorization: `Bearer ${ADMIN_TOKEN}` } }),
+    )
+    const afterBody = await readJson(after)
+    const afterSites = afterBody['sites'] as Array<{ host: string; retryNotBefore: string | null }>
+    expect(afterSites.find((s) => s.host === WWW_HOST)!.retryNotBefore).toBeNull()
   })
 
   test('parses and validates numeric list limits from query parameters', async () => {
