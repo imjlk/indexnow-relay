@@ -321,6 +321,26 @@ describe('EnqueueService.submit', () => {
     expect(blog.enqueued).toBe(1)
   })
 
+  test('scope comparison is insensitive to percent-escape casing', () => {
+    const created = createTestApp({
+      sites: {
+        [WWW_HOST]: { key: WWW_KEY, keyPath: '/caf%c3%a9/{key}.txt' },
+        [BLOG_HOST]: { key: BLOG_KEY, batchSize: 2 },
+      },
+    })
+    apps.push(created)
+    const token = findToken(created.config.auth.tokens, ADMIN_TOKEN)!
+
+    // escapes survive URL parsing verbatim, so both spellings are distinct
+    // queue identities - but both must fall inside the scope regardless of
+    // percent-escape casing
+    const ok = created.enqueue.submit(token, ['https://www.example.com/caf%C3%A9/page'], undefined)
+    expect(ok.enqueued).toBe(1)
+    const lower = created.enqueue.submit(token, ['https://www.example.com/caf%c3%a9/page'], undefined)
+    expect(lower.enqueued).toBe(1)
+    expect(created.pendingUrls.listQueue(WWW_HOST, 'pending', 10)).toHaveLength(2)
+  })
+
   test('an out-of-scope URL rejects the whole request all-or-nothing', () => {
     const created = createTestApp({
       sites: {

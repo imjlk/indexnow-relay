@@ -170,7 +170,9 @@ describe('normalizeRelayConfig', () => {
       '/catalog/%5C{key}.txt',             // encoded backslash
     ]
     const key = 'a1b2c3d4e5f60718'
-    for (const keyPath of badPaths) {
+    // this fixture embeds the concrete key: redaction must cover it too
+    const badPathsWithKey = [`/x-${key}/../{key}.txt`, ...badPaths]
+    for (const keyPath of badPathsWithKey) {
       let message = ''
       try {
         normalizeRelayConfig(baseConfig({ sites: { 'www.example.com': { key, keyPath } } }))
@@ -178,9 +180,32 @@ describe('normalizeRelayConfig', () => {
         message = (error as ConfigError).message
       }
       expect(message).not.toBe('')
-      // the resolved location embeds the secret key; it must never surface
+      // neither the supplied path nor the resolved location (which embeds
+      // the secret key) may surface
+      expect(message).not.toContain(keyPath)
       expect(message).not.toContain(key)
     }
+  })
+
+  test('rejects encoded separators formed across the placeholder boundary', () => {
+    // a key starting with "2f" completes an escaped slash after a literal %
+    expect(() =>
+      normalizeRelayConfig(
+        baseConfig({ sites: { 'www.example.com': { key: '2fABCDEF000001', keyPath: '/catalog/private%{key}.txt' } } }),
+      ),
+    ).toThrow(ConfigError)
+    expect(() =>
+      normalizeRelayConfig(
+        baseConfig({ sites: { 'www.example.com': { key: '5cABCDEF000001', keyPath: '/catalog/private%{key}.txt' } } }),
+      ),
+    ).toThrow(ConfigError)
+  })
+
+  test('scope directories are stored with canonical percent escapes', () => {
+    const config = normalizeRelayConfig(
+      baseConfig({ sites: { 'www.example.com': { key: 'a1b2c3d4e5f60718', keyPath: '/caf%c3%a9/{key}.txt' } } }),
+    )
+    expect(config.sites['www.example.com']!.keyScopeDir).toBe('/caf%C3%A9')
   })
 
   test('keeps the placeholder in the final path segment so the scope is the key directory', () => {

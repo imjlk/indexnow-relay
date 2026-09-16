@@ -91,7 +91,10 @@ export class EnqueueService {
         continue
       }
       const scope = this.#deps.registry.get(item.host)!.keyScopeDir
-      const inScope = scope === '' || item.path.startsWith(`${scope}/`)
+      // both operands in RFC 3986 canonical form: escape hex casing must
+      // not decide whether a URL is inside the key file's directory
+      const path = canonicalizeEscapes(item.path)
+      const inScope = scope === '' || path.startsWith(`${scope}/`)
       if (!inScope && invalid.length < 10) {
         invalid.push({
           url: item.url,
@@ -240,4 +243,9 @@ export class EnqueueService {
       sites: siteSummaries,
     }
   }
+}
+
+/** Upper-cases the hex digits of every percent escape (RFC 3986 canonical form). */
+function canonicalizeEscapes(path: string): string {
+  return path.replace(/%[0-9a-fA-F]{2}/g, (escape) => escape.toUpperCase())
 }

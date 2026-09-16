@@ -122,6 +122,13 @@ function normalizeKeyPath(
   }
 
   const substituted = resolved.replace(placeholder, key)
+  // the key value itself can complete an encoded separator across the
+  // placeholder boundary (key "2f..." after a literal '%')
+  if (/%2f|%5c/i.test(substituted)) {
+    throw new ConfigError(
+      `sites.${host}.keyPath must not produce an encoded path separator once the key is substituted.`,
+    )
+  }
   let keyLocation: URL
   try {
     keyLocation = new URL(`https://${host}${substituted}`)
@@ -141,9 +148,17 @@ function normalizeKeyPath(
   }
 
   // The placeholder sits in the final segment, so its directory is the key
-  // file's directory: exactly the scope IndexNow grants.
+  // file's directory: exactly the scope IndexNow grants. Percent escapes are
+  // canonicalized to uppercase hex (RFC 3986 comparison form) so the runtime
+  // scope prefix check matches URLs regardless of escape casing.
   const scopeEnd = resolved.lastIndexOf('/')
-  return { keyPath: resolved, keyScopeDir: scopeEnd <= 0 ? '' : resolved.slice(0, scopeEnd) }
+  const scopeDir = scopeEnd <= 0 ? '' : resolved.slice(0, scopeEnd)
+  return { keyPath: resolved, keyScopeDir: canonicalizeEscapes(scopeDir) }
+}
+
+/** Upper-cases the hex digits of every percent escape (RFC 3986 canonical form). */
+function canonicalizeEscapes(path: string): string {
+  return path.replace(/%[0-9a-fA-F]{2}/g, (escape) => escape.toUpperCase())
 }
 
 function normalizeQueue(input: QueueConfigInput | undefined): NormalizedQueueConfig {
