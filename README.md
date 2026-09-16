@@ -48,8 +48,21 @@ openssl rand -hex 16   # e.g. 3f2b8c1d4e5f60718293a4b5c6d7e8f9
 # serve the key string at https://www.example.com/3f2b8c1d4e5f60718293a4b5c6d7e8f9.txt
 ```
 
-Create an `.env` (see [`.env.example`](.env.example)) - sites go in
-`INDEXNOW_SITES` as JSON, no config file needed:
+**Option A - environment variables only** (containers, Coolify): create an
+`.env` (see [`.env.example`](.env.example)) with sites as JSON in
+`INDEXNOW_SITES` plus one bearer token - no config file at all:
+
+```bash
+docker run -d --name indexnow-relay \
+  -p 3000:3000 \
+  --env-file .env \
+  -v indexnow-relay-data:/data \
+  ghcr.io/imjlk/indexnow-relay:latest
+```
+
+**Option B - config file**: prefer a `relay.config.ts` for per-site tuning,
+queue settings, or scoped tokens? Mount it instead of setting
+`INDEXNOW_SITES` - providing both is a startup error, never a merge:
 
 ```ts
 import { defineConfig, env } from 'indexnow-relay/config'
@@ -65,22 +78,15 @@ export default defineConfig({
 })
 ```
 
-Run it:
-
 ```bash
 docker run -d --name indexnow-relay \
   -p 3000:3000 \
-  --env-file .env \
+  --env INDEXNOW_RELAY_TOKEN=... \
+  --env INDEXNOW_KEY_WWW_EXAMPLE_COM=... \
+  --env INDEXNOW_KEY_DOCS_EXAMPLE_COM=... \
   -v indexnow-relay-data:/data \
+  -v "$PWD/relay.config.ts:/app/relay.config.ts:ro" \
   ghcr.io/imjlk/indexnow-relay:latest
-```
-
-Prefer a `relay.config.ts` (per-site tuning, queue settings, scoped tokens)?
-Mount it instead of setting `INDEXNOW_SITES` - providing both is a startup
-error:
-
-```bash
--v "$PWD/relay.config.ts:/app/relay.config.ts:ro"
 ```
 
 Or with [`docker-compose.yml`](docker-compose.yml): `docker compose up -d`.
@@ -291,6 +297,20 @@ fail permanently into dead letters.
 
 - **Crash safety** — on boot, leases and in-flight batches from a previous
   process are recovered; queued URLs resume automatically.
+- **One instance per database** — the relay is a single Bun process with one
+  SQLite file. Boot-time lease recovery handles crashes of *that one
+  process*; it is not multi-instance support. Never point two relay
+  processes at the same database file.
+- **Upgrading** — stop the old container, back up the data volume
+  (`docker run --rm -v indexnow-relay-data:/data -v "$PWD":/backup alpine
+  cp -a /data /backup`), start the new version, then check `/health/ready`
+  and the admin overview. Database migrations run on boot; rolling back to
+  an older image after a migration is not guaranteed safe - restore the
+  volume backup instead. Pin a version tag (`ghcr.io/imjlk/indexnow-relay:X.Y.Z`)
+  rather than `latest` so upgrades are deliberate.
+- **Data volume** — everything durable (queue, receipts, batches, pause and
+  cooldown state) lives under `/data` in the image. Upgrades never require
+  deleting the volume; deleting it discards the queued URLs.
 - **Pause** — `POST /v1/admin/sites/www.example.com/pause` stops deliveries
   for that site while still accepting (and queueing) submissions.
 - **Dead letters** — inspect via `/v1/admin/dead-letters`, fix the cause
