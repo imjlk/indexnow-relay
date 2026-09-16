@@ -29,9 +29,11 @@ export const DEFAULT_QUEUE_CONFIG: Readonly<NormalizedQueueConfig> = {
   maxBatchSize: 1_000,
   maxConcurrentSites: 4,
   pollIntervalMs: 250,
-  maxAttempts: 5,
-  backoffBaseMs: 1_000,
-  backoffMaxMs: 300_000,
+  // Total attempts including the first send; a URL exhausting these becomes
+  // a dead letter.
+  maxAttempts: 10,
+  backoffBaseMs: 30_000,
+  backoffMaxMs: 900_000,
   httpTimeoutMs: 10_000,
   retentionDays: 30,
 }

@@ -102,6 +102,13 @@ describe('normalizeRelayConfig', () => {
     expect(config.auth.tokens[0]!.sites).toBe('*')
   })
 
+  test('retry defaults give a patient, bounded budget', () => {
+    const { queue } = normalizeRelayConfig(baseConfig())
+    expect(queue.maxAttempts).toBe(10)
+    expect(queue.backoffBaseMs).toBe(30_000)
+    expect(queue.backoffMaxMs).toBe(900_000)
+  })
+
   test('rejects an invalid IndexNow key', () => {
     expect(() => normalizeRelayConfig(baseConfig({ sites: { 'www.example.com': 'not-hex' } }))).toThrow(ConfigError)
   })

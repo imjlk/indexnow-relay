@@ -224,8 +224,8 @@ Delivery is fire-and-forget with bounded retries and never blocks the queue.
 | `maxBatchSize` | `1_000` | Default URLs per IndexNow request |
 | `maxConcurrentSites` | `4` | Sites drained in parallel |
 | `pollIntervalMs` | `250` | Scheduler tick |
-| `maxAttempts` | `5` | Retry attempts before a URL becomes a dead letter |
-| `backoffBaseMs` / `backoffMaxMs` | `1_000` / `300_000` | Exponential backoff bounds (+ up to 30% jitter) |
+| `maxAttempts` | `10` | Total delivery attempts (including the first) before a URL becomes a dead letter |
+| `backoffBaseMs` / `backoffMaxMs` | `30_000` / `900_000` | Exponential backoff bounds (+ up to 30% jitter); a server `Retry-After` longer than the ceiling is honored in full |
 | `httpTimeoutMs` | `10_000` | IndexNow request timeout |
 | `retentionDays` | `30` | Receipts, batches, and dead letters older than this are purged |
 
