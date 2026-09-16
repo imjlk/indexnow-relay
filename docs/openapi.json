@@ -379,9 +379,13 @@
               "$ref": "#/components/schemas/SiteSubmissionSummary"
             }
           },
+          "pendingLastReferenced": {
+            "type": "number",
+            "description": "Pending queue rows (including rows currently leased for delivery) whose\nlatest receipt reference is this receipt. Zero does NOT mean the URLs\nwere delivered: references move to newer receipts and dead-lettered\nURLs also leave the count. Check the admin queue/batch APIs for\ndelivery outcomes."
+          },
           "stillPending": {
             "type": "number",
-            "description": "URLs from this receipt that are still waiting to be submitted."
+            "description": "Deprecated alias of `pendingLastReferenced`."
           }
         },
         "required": [
@@ -391,6 +395,7 @@
           "enqueued",
           "coalesced",
           "sites",
+          "pendingLastReferenced",
           "stillPending"
         ],
         "additionalProperties": false
@@ -518,6 +523,17 @@
                 "type": "string"
               }
             ]
+          },
+          "retryNotBefore": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "When a retryable failure put the site itself in a delivery cooldown\n(Retry-After / backoff); null when no future cooldown is active. This\ngates actual delivery, unlike nextDueAt which is only the queue's\nstored due time."
           }
         },
         "required": [
@@ -526,7 +542,8 @@
           "paused",
           "pending",
           "dead",
-          "nextDueAt"
+          "nextDueAt",
+          "retryNotBefore"
         ],
         "additionalProperties": false
       },
@@ -1240,9 +1257,13 @@
                         "$ref": "#/components/schemas/SiteSubmissionSummary"
                       }
                     },
+                    "pendingLastReferenced": {
+                      "type": "number",
+                      "description": "Pending queue rows (including rows currently leased for delivery) whose\nlatest receipt reference is this receipt. Zero does NOT mean the URLs\nwere delivered: references move to newer receipts and dead-lettered\nURLs also leave the count. Check the admin queue/batch APIs for\ndelivery outcomes."
+                    },
                     "stillPending": {
                       "type": "number",
-                      "description": "URLs from this receipt that are still waiting to be submitted."
+                      "description": "Deprecated alias of `pendingLastReferenced`."
                     }
                   },
                   "required": [
@@ -1252,6 +1273,7 @@
                     "enqueued",
                     "coalesced",
                     "sites",
+                    "pendingLastReferenced",
                     "stillPending"
                   ],
                   "additionalProperties": false

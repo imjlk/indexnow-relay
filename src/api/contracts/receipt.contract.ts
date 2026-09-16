@@ -7,7 +7,7 @@ import { GetReceiptInputSchema, GetReceiptOutputSchema } from '../schemas/receip
  * `GET /v1/receipts/{id}` - inspect what happened to a submission.
  *
  * @evidence docs/REQUIREMENTS.md#receipts Owns the receipt read contract
- *           (per-host counts plus stillPending progress).
+ *           (per-host counts plus pendingLastReferenced queue progress).
  * @evidence GET:/v1/receipts/{id} Declares this operation's route and schemas.
  */
 export const getReceiptContract = oc

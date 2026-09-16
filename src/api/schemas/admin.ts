@@ -14,6 +14,13 @@ export interface AdminSiteStatus {
   pending: number
   dead: number
   nextDueAt: string | null
+  /**
+   * When a retryable failure put the site itself in a delivery cooldown
+   * (Retry-After / backoff); null when no future cooldown is active. This
+   * gates actual delivery, unlike nextDueAt which is only the queue's
+   * stored due time.
+   */
+  retryNotBefore: string | null
 }
 
 export interface AdminOverviewOutput {

@@ -253,7 +253,7 @@ the OpenAPI document (`/openapi.json`, interactive docs at `/`).
 | --- | --- | --- |
 | POST | `/v1/urls` | Submit URLs across any number of configured sites |
 | POST | `/v1/sitemap` | Bulk-submit every URL from a remote sitemap / sitemap index |
-| GET | `/v1/receipts/{id}` | Inspect a submission (`stillPending` shows remaining work) |
+| GET | `/v1/receipts/{id}` | Inspect a submission (`pendingLastReferenced` counts queue rows still referencing it; not a delivery verdict) |
 | GET | `/v1/admin/overview` | Queue depths and batch counters per site |
 | GET | `/v1/admin/queue?site=&status=` | Queued URLs with attempts and due times |
 | GET | `/v1/admin/batches?site=&limit=` | Recent IndexNow submission attempts |

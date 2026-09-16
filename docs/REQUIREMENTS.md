@@ -75,10 +75,16 @@ holds.
 ## Receipts
 
 `GET /v1/receipts/{id}` returns what was received, enqueued, and coalesced
-per host, plus `stillPending` — how many of the receipt's URLs remain in the
-queue. Receipts are retained for `queue.retentionDays`. A scoped token
-cannot learn that a receipt exists if any involved host is outside its
-scope: the response is 404, not 403.
+per host, plus `pendingLastReferenced` — how many distinct URLs are
+currently pending (leased rows included) with this receipt as their latest
+reference. A receipt is a record of what was accepted plus that limited
+queue reference, never a delivery verdict: `pendingLastReferenced` 0 can
+mean delivered, dead-lettered, or simply superseded by a newer receipt, so
+no field claims completion. `stillPending` remains as a deprecated alias.
+Delivery outcomes live in the operations API (queue, batches,
+dead-letters). Receipts are retained for `queue.retentionDays`. A scoped
+token cannot learn that a receipt exists if any involved host is outside
+its scope: the response is 404, not 403.
 
 ## Delivery semantics
 
@@ -149,7 +155,8 @@ and IndexNow keys exist only in normalized in-memory configuration.
 ## Operations API
 
 Unrestricted tokens get: a queue overview (per-site pending/dead counts,
-next due time, batch counters), a queue listing with per-URL attempts and
+next due time, active delivery-cooldown time `retryNotBefore`, batch
+counters), a queue listing with per-URL attempts and
 due times (filterable by site and status), recent submission batches with
 outcomes, dead-letter listing and requeue, and per-site pause/resume that
 survives restarts. Pausing stops deliveries while still accepting and
