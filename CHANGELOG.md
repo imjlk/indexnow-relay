@@ -1,5 +1,94 @@
 # indexnow-relay
 
+## 0.5.0 — 2026-09-16
+
+### Fixed
+
+- [0ee3a8a](https://github.com/imjlk/indexnow-relay/commit/0ee3a8ae733e33147c9823e7009e6dd5303ef7c2) Queue: submissions that arrive while an earlier change for the same URL is
+  in flight are no longer lost. Successful delivery used to delete the queue
+  row unconditionally, dropping the newer change; it now deletes only rows
+  that still match the claim-time revision and keeps newer revisions queued
+  for a later batch. A resubmission arriving while that follow-up delivery is
+  itself in flight now coalesces into the pending row (the resubmit-interval
+  gate is only applied when no queue row exists), so it can no longer be
+  suppressed and then dropped by the follow-up's success. Retry waits now act
+  as a delivery floor that resubmissions cannot shorten, and pending
+  resubmissions keep their attempt counts (now pinned by tests). An explicit
+  `event` on a resubmission updates the stored metadata for pending rows and
+  dead-row revivals; omission keeps the previous value. Queue state
+  transitions (claim, success, failure) are single SQLite transactions with
+  notifications and logging after commit. Also fixes the scheduler launching
+  deliveries before `start()` when woken by a submission. Existing databases
+  upgrade in place (migration 0002 preserves ongoing retry waits). — Thanks @imjlk!
+- [f050643](https://github.com/imjlk/indexnow-relay/commit/f0506431773b2e5bd62f1e2339cd04ec346c7413) Ops hardening: `@orpc/json-schema` (imported directly by the app) is now
+  declared as a direct dependency instead of resolving transitively, and the
+  container healthcheck probes the `PORT` the server actually listens on
+  (default 3000) instead of hard-coded 3000. CI smoke tests now cover the
+  deployment boundaries — environment-variable configuration, a queued URL and
+  its Retry-After site cooldown surviving a process restart, an in-place
+  upgrade from a schema-v1
+  database, config-file-plus-`INDEXNOW_SITES` failing fast, a non-default port,
+  and the built image reaching `healthy` on an overridden port. README
+  deployment docs split the env-var and config-file options into runnable
+  examples and add single-instance, upgrade (stop → back up volume → start →
+  verify), and data-volume guidance. — Thanks @imjlk!
+
+### Changed
+
+- [b4a6491](https://github.com/imjlk/indexnow-relay/commit/b4a6491c179b0db80ea852a60059543693fc232b) Behavior change: a resubmission arriving inside a site's resubmit interval
+  after a successful send is no longer silently dropped. The relay now reserves
+  exactly one deferred redelivery — a pending row whose delivery floor is the
+  last success plus `minResubmitIntervalMs` — so the change stays queued for
+  delivery once the interval passes, subject to the usual retry, pause, and
+  site-cooldown scheduling. Repeated resubmissions merge into
+  that reservation without postponing it, dead-row revival and mid-flight
+  follow-ups get the same floor, and no automatic redelivery ever happens
+  without a new submission. Receipt counters are now exact: creating a deferred
+  reservation counts as `enqueued` (previously `coalesced`), so
+  `received = enqueued + coalesced` always holds. — Thanks @imjlk!
+- [5c1a702](https://github.com/imjlk/indexnow-relay/commit/5c1a70211572f94ee0100f7bfada4cd4de7aacb7) Retry handling now actually rests a failing site. A parseable `Retry-After`
+  (integer seconds or HTTP date) on a `429`/`5xx` answer sets the retry time to
+  the later of the relay's own backoff and the server's requested wait, and the
+  whole site — not just the failed URLs — cools down until then. The cooldown is
+  persisted, so new submissions, scheduler wake-ups, process restarts, and
+  `resume` cannot bypass it; a pause or cooldown arriving mid-drain stops the
+  next batch while the in-flight request finishes. Classification now retries
+  on every `5xx` (previously only 500/502/503/504). A retryable batch whose
+  every URL exhausted its budget is recorded `dead` instead of
+  `retry_scheduled`.
+  
+  Changed defaults: `maxAttempts` `5` → `10` (total attempts including the
+  first send), `backoffBaseMs` `1_000` → `30_000`, `backoffMaxMs` `300_000` →
+  `900_000`. Explicit settings are untouched. Existing databases upgrade in
+  place (migration 0003). — Thanks @imjlk!
+- [f87d9e6](https://github.com/imjlk/indexnow-relay/commit/f87d9e65d0baa5621fa174d8904183856b43e5c6) IndexNow keys are now accepted and preserved verbatim: 8–128 characters of
+  letters, digits, or hyphens (previously hexadecimal only, silently
+  lowercased). Deployments that relied on the lowercasing must confirm their
+  origin key file matches the configured value byte for byte. `keyPath` is
+  validated as a plain path on the site (one `{key}` placeholder; no query,
+  fragment, backslash, control characters, or `..` segments) and scoped-token
+  site lists are stored normalized and de-duplicated.
+  
+  New: a key file below a subdirectory (e.g. `keyPath: '/catalog/{key}.txt'`)
+  now restricts that site to submitting URLs under `/catalog`, compared on
+  path-segment boundaries per the IndexNow key-location rule; out-of-scope
+  URLs are rejected as `INVALID_URL` all-or-nothing. Default examples no
+  longer suggest `/.well-known/{key}.txt` (that path would silently restrict a
+  site to the `.well-known` directory); the default remains `/{key}.txt`. — Thanks @imjlk!
+
+### Added
+
+- [c853a57](https://github.com/imjlk/indexnow-relay/commit/c853a5717c43e9881e7acc3266bbe5fe8b21514f) Receipts now expose `pendingLastReferenced` — how many distinct URLs are
+  currently pending (delivery-leased rows included) with this receipt as their
+  latest reference. It replaces `stillPending` (kept as a deprecated alias
+  returning the same value) with a name that says what the number actually is:
+  the count is not a delivery verdict, and zero can mean delivered,
+  dead-lettered, or superseded by a newer receipt — documentation now points to
+  the operations API for outcomes. The admin overview also gains per-site
+  `retryNotBefore` (ISO instant of an active Retry-After/backoff cooldown, null
+  when none), distinct from `nextDueAt`, which remains the queue's stored due
+  time. — Thanks @imjlk!
+
 ## 0.4.0 — 2026-09-06
 
 ### Added
