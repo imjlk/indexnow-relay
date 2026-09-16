@@ -35,7 +35,9 @@ export interface QueueDepth {
 
 /**
  * All queue state lives in `pending_urls`, keyed by `(site_host, url)`.
- * `status = 'dead'` rows are dead letters kept for inspection and retry.
+ * `status = 'dead'` rows are dead letters kept for inspection and retry;
+ * their `last_seen_at` is the failure-transition time and doubles as the
+ * retention anchor (no separate dead_at column).
  */
 export class PendingUrlsRepository {
   readonly #db: Database
@@ -210,6 +212,22 @@ export class PendingUrlsRepository {
   }
 
   /**
+   * Claim items this lease still owns right now: same site, this lease id,
+   * still pending. A fresh random lease id means every matching row came
+   * from this claim; rows whose lease expired and was swept or re-claimed
+   * no longer match. Revision is not consulted - ownership and mid-flight
+   * resubmission are separate concerns.
+   */
+  leasedUrls(siteHost: string, leaseId: string): string[] {
+    const rows = this.#db
+      .query<{ url: string }, [string, string]>(
+        "SELECT url FROM pending_urls WHERE site_host = ? AND lease_id = ? AND status = 'pending'",
+      )
+      .all(siteHost, leaseId)
+    return rows.map((row) => row.url)
+  }
+
+  /**
    * Removes successfully submitted rows leased by this lease, but only while
    * their `revision` still matches the claim-time snapshot. Rows resubmitted
    * while in flight (higher revision) are left leased for
@@ -304,10 +322,11 @@ export class PendingUrlsRepository {
         .query(
           `UPDATE pending_urls
            SET lease_id = NULL, lease_until = NULL, attempts = attempts + 1,
-               due_at = 0, not_before_at = 0, last_error = ?, status = 'dead'
+               due_at = 0, not_before_at = 0, last_error = ?, status = 'dead',
+               last_seen_at = ?
            WHERE site_host = ? AND lease_id = ?`,
         )
-        .run(errorMessage, siteHost, leaseId).changes
+        .run(errorMessage, now, siteHost, leaseId).changes
 
       return { retried, dead }
     })()
