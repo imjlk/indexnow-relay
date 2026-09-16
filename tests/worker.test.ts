@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 
 import type { FetchLike } from '../src/indexnow/client.ts'
+import { IndexNowClient } from '../src/indexnow/client.ts'
+import { USER_AGENT } from '../src/version.ts'
+import { drainSite, type DrainResult } from '../src/queue/worker.ts'
 import { closeApp } from '../src/app.ts'
 import type { RelayApp } from '../src/api/context.ts'
 import { ADMIN_TOKEN, BLOG_KEY, BLOG_HOST, WWW_KEY, WWW_HOST, createTestApp, waitFor } from './helpers/app.ts'
@@ -26,6 +29,51 @@ function recordingFetch(respond: () => Response): { fetch: FetchLike; calls: Rec
     return respond()
   }
   return { fetch, calls }
+}
+
+function deferredFetch(): { fetch: FetchLike; calls: RecordedCall[]; resolve: (status: number) => void } {
+  const calls: RecordedCall[] = []
+  let release: ((status: number) => void) | undefined
+  const fetch: FetchLike = async (url, init) => {
+    calls.push({
+      url,
+      body: JSON.parse((init.body as string | undefined) ?? '{}') as RecordedCall['body'],
+    })
+    return new Promise<number>((resolvePromise) => {
+      release = resolvePromise
+    }).then((statusCode) => new Response('', { status: statusCode }))
+  }
+  return {
+    fetch,
+    calls,
+    resolve: (statusCode) => {
+      if (release === undefined) throw new Error('fetch not started yet')
+      release(statusCode)
+    },
+  }
+}
+
+/** Drives drainSite manually against an app whose scheduler never started. */
+function manualDrain(a: RelayApp, fetch: FetchLike, isStopped: () => boolean = () => false): Promise<DrainResult> {
+  return drainSite(
+    a.config.sites[WWW_HOST]!,
+    {
+      db: a.db,
+      pendingUrls: a.pendingUrls,
+      submissionState: a.submissionState,
+      batches: a.batches,
+      queue: a.config.queue,
+      client: new IndexNowClient({
+        endpoint: a.config.indexnowEndpoint,
+        timeoutMs: a.config.queue.httpTimeoutMs,
+        userAgent: USER_AGENT,
+        fetchImpl: fetch,
+      }),
+      logger: a.logger,
+      notifier: a.notifier,
+    },
+    isStopped,
+  )
 }
 
 const apps: RelayApp[] = []
@@ -213,5 +261,122 @@ describe('queue worker end to end', () => {
 
     a.enqueue.submit(findToken(a.config.auth.tokens, ADMIN_TOKEN)!, ['https://www.example.com/a'], undefined)
     await waitFor(() => a.pendingUrls.queueDepths().length === 0 && attempts === 2, 3000, 'network retry')
+  })
+})
+
+describe('in-flight resubmission preservation', () => {
+  test('a resubmission that lands mid-delivery survives the first success', async () => {
+    const deferred = deferredFetch()
+    const a = track(createTestApp({ fetchImpl: deferred.fetch }))
+    const token = findToken(a.config.auth.tokens, ADMIN_TOKEN)!
+    let stopAfterFirstBatch = false
+
+    a.enqueue.submit(token, ['https://www.example.com/a'], 'created')
+    const draining = manualDrain(a, deferred.fetch, () => stopAfterFirstBatch)
+    await waitFor(() => deferred.calls.length === 1, 3000, 'first batch in flight')
+
+    // the follow-up change arrives while the first HTTP call is pending
+    a.enqueue.submit(token, ['https://www.example.com/a'], 'updated')
+
+    stopAfterFirstBatch = true
+    deferred.resolve(200)
+    const result = await draining
+
+    // first delivery succeeded and is recorded...
+    expect(result.batchesSucceeded).toBe(1)
+    expect(result.followUpsPreserved).toBe(1)
+    expect(a.submissionState.getSentAt(WWW_HOST, ['https://www.example.com/a']).size).toBe(1)
+    expect(a.batches.list(undefined, 10)[0]!.status).toBe('succeeded')
+
+    // ...and the follow-up change is still queued with a fresh cycle
+    const row = a.pendingUrls.get(WWW_HOST, 'https://www.example.com/a')!
+    expect(row.status).toBe('pending')
+    expect(row.lease_id).toBeNull()
+    expect(row.revision).toBe(2)
+    expect(row.attempts).toBe(0)
+    expect(row.last_error).toBeNull()
+    expect(row.event_type).toBe('updated')
+    expect(row.first_seen_at).toBe(row.last_seen_at)
+    expect(row.due_at).toBeLessThanOrEqual(Date.now())
+  })
+
+  test('repeated mid-flight resubmissions leave exactly one follow-up row', async () => {
+    const deferred = deferredFetch()
+    const a = track(createTestApp({ fetchImpl: deferred.fetch }))
+    const token = findToken(a.config.auth.tokens, ADMIN_TOKEN)!
+    let stopAfterFirstBatch = false
+
+    a.enqueue.submit(token, ['https://www.example.com/a'], undefined)
+    const draining = manualDrain(a, deferred.fetch, () => stopAfterFirstBatch)
+    await waitFor(() => deferred.calls.length === 1, 3000, 'batch in flight')
+
+    a.enqueue.submit(token, ['https://www.example.com/a'], undefined)
+    a.enqueue.submit(token, ['https://www.example.com/a'], undefined)
+    a.enqueue.submit(token, ['https://www.example.com/a'], undefined)
+
+    stopAfterFirstBatch = true
+    deferred.resolve(200)
+    const result = await draining
+
+    const pending = a.pendingUrls.listQueue(WWW_HOST, 'pending', 10)
+    expect(pending).toHaveLength(1)
+    expect(pending[0]!.revision).toBe(4)
+    expect(result.followUpsPreserved).toBe(1)
+  })
+
+  test('a failure while recording success rolls back queue, state, and batch', async () => {
+    const deferred = deferredFetch()
+    const a = track(createTestApp({ fetchImpl: deferred.fetch }))
+    const token = findToken(a.config.auth.tokens, ADMIN_TOKEN)!
+
+    a.enqueue.submit(token, ['https://www.example.com/a'], undefined)
+    const draining = manualDrain(a, deferred.fetch)
+    await waitFor(() => deferred.calls.length === 1, 3000, 'batch in flight')
+
+    const original = a.batches.markSucceeded.bind(a.batches)
+    const patched = a.batches as unknown as {
+      markSucceeded: (id: string, httpStatus: number, completedAt: number) => void
+    }
+    patched.markSucceeded = () => {
+      throw new Error('db exploded')
+    }
+
+    deferred.resolve(200)
+    await expect(draining).rejects.toThrow('db exploded')
+    patched.markSucceeded = original
+
+    // nothing partially applied: the row is still leased-pending, no sent
+    // state, the audit row is still in flight
+    const row = a.pendingUrls.get(WWW_HOST, 'https://www.example.com/a')!
+    expect(row.status).toBe('pending')
+    expect(row.lease_id).not.toBeNull()
+    expect(a.submissionState.getSentAt(WWW_HOST, ['https://www.example.com/a'])).toEqual(new Map())
+    expect(a.batches.list(undefined, 10)[0]!.status).toBe('in_flight')
+  })
+
+  test('an expired lease completed late does not touch the new lease', () => {
+    const a = track(createTestApp())
+    const url = 'https://www.example.com/a'
+    a.enqueue.submit(findToken(a.config.auth.tokens, ADMIN_TOKEN)!, [url], undefined)
+
+    // worker-1 claimed at revision 1; the URL was resubmitted (revision 2);
+    // worker-1's lease expired and worker-2 re-claimed the same row.
+    a.db
+      .prepare("UPDATE pending_urls SET lease_id = 'lease-2', revision = 2 WHERE url = ?")
+      .run(url)
+
+    const stale = a.pendingUrls.deleteLeased(WWW_HOST, 'lease-1', [
+      { url, event_type: null, attempts: 0, revision: 1 },
+    ])
+    const released = a.pendingUrls.releaseFollowUps(WWW_HOST, 'lease-1', [
+      { url, event_type: null, attempts: 0, revision: 1 },
+    ], 0)
+
+    expect(stale).toBe(0)
+    expect(released).toEqual([])
+    const row = a.pendingUrls.get(WWW_HOST, url)!
+    expect(row.lease_id).toBe('lease-2')
+    expect(row.revision).toBe(2)
+    expect(row.attempts).toBe(0)
   })
 })
