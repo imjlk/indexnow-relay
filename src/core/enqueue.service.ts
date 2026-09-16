@@ -120,24 +120,14 @@ export class EnqueueService {
         let coalesced = duplicatesOf(urls)
 
         for (const url of uniqueUrls) {
-          const lastSent = sentAt.get(url)
-          if (lastSent !== undefined && now - lastSent < site.minResubmitIntervalMs) {
-            coalesced += 1
-            continue
-          }
-
           const existing = this.#deps.pendingUrls.get(host, url)
-          if (existing === null) {
-            this.#deps.pendingUrls.insertNew(
-              host,
-              url,
-              event,
-              now,
-              now + queue.batchWindowMs,
-              receiptId,
-            )
-            enqueued += 1
-          } else if (existing.status === 'pending') {
+
+          // An existing pending row (leased or not) always absorbs the
+          // resubmission. Suppressing on recent success here could drop a
+          // change that arrives while the row's own follow-up delivery is
+          // in flight: the follow-up would succeed at its old revision and
+          // delete the row, losing the newer change.
+          if (existing !== null && existing.status === 'pending') {
             this.#deps.pendingUrls.coalesceTouch(
               host,
               url,
@@ -148,11 +138,31 @@ export class EnqueueService {
               event,
             )
             coalesced += 1
-          } else {
-            // dead -> operator resubmitted it; give it a fresh attempt budget
-            this.#deps.pendingUrls.reviveDead(host, url, now, now + queue.batchWindowMs, receiptId)
-            enqueued += 1
+            continue
           }
+
+          if (existing !== null) {
+            // dead -> operator resubmitted it; give it a fresh attempt budget
+            this.#deps.pendingUrls.reviveDead(host, url, now, now + queue.batchWindowMs, receiptId, event)
+            enqueued += 1
+            continue
+          }
+
+          const lastSent = sentAt.get(url)
+          if (lastSent !== undefined && now - lastSent < site.minResubmitIntervalMs) {
+            coalesced += 1
+            continue
+          }
+
+          this.#deps.pendingUrls.insertNew(
+            host,
+            url,
+            event,
+            now,
+            now + queue.batchWindowMs,
+            receiptId,
+          )
+          enqueued += 1
         }
 
         siteSummaries.push({ host, enqueued, coalesced })

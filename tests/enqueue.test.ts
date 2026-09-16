@@ -89,13 +89,23 @@ describe('EnqueueService.submit', () => {
   test('bumps revision per resubmission, even within the same millisecond', () => {
     const a = app()
     const token = adminTokenOf(a)
-    const first = a.enqueue.submit(token, ['https://www.example.com/a'], 'created')
-    const second = a.enqueue.submit(token, ['https://www.example.com/a'], 'created')
 
-    const row = a.pendingUrls.get('www.example.com', 'https://www.example.com/a')!
-    expect(row.revision).toBe(2)
-    expect(row.last_receipt_id).toBe(second.receiptId)
-    expect(row.last_receipt_id).not.toBe(first.receiptId)
+    const realNow = Date.now
+    const frozenNow = realNow()
+    Date.now = () => frozenNow
+    try {
+      const first = a.enqueue.submit(token, ['https://www.example.com/a'], 'created')
+      const second = a.enqueue.submit(token, ['https://www.example.com/a'], 'created')
+      expect(first.receiptId).not.toBe(second.receiptId)
+
+      const row = a.pendingUrls.get('www.example.com', 'https://www.example.com/a')!
+      expect(row.first_seen_at).toBe(frozenNow)
+      expect(row.last_seen_at).toBe(frozenNow)
+      expect(row.revision).toBe(2)
+      expect(row.last_receipt_id).toBe(second.receiptId)
+    } finally {
+      Date.now = realNow
+    }
   })
 
   test('updates event metadata on resubmit and keeps it when omitted', () => {
@@ -172,6 +182,21 @@ describe('EnqueueService.submit', () => {
     const row = a.pendingUrls.get('www.example.com', 'https://www.example.com/a')
     expect(row!.status).toBe('pending')
     expect(row!.attempts).toBe(0)
+  })
+
+  test('reviving a dead URL applies the resubmission event', () => {
+    const a = app()
+    const token = adminTokenOf(a)
+    a.enqueue.submit(token, ['https://www.example.com/a'], 'created')
+
+    a.db
+      .prepare("UPDATE pending_urls SET status = 'dead' WHERE url = ?")
+      .run('https://www.example.com/a')
+
+    a.enqueue.submit(token, ['https://www.example.com/a'], 'deleted')
+    const row = a.pendingUrls.get('www.example.com', 'https://www.example.com/a')!
+    expect(row.status).toBe('pending')
+    expect(row.event_type).toBe('deleted')
   })
 })
 

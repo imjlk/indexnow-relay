@@ -43,14 +43,17 @@ Accepted submissions return a receipt with per-host `enqueued` and
 `coalesced` counts, and all writes land in a single SQLite transaction.
 Duplicates within one request, resubmissions while a URL is still pending,
 and resubmissions within the site's resubmit interval after a successful send
-coalesce instead of enqueueing again. A resubmitted dead URL is revived with
-a fresh attempt budget. Each pending URL carries a `revision` bumped by every
-external resubmission, so a change that lands while an earlier change for the
-same URL is in flight is preserved: the earlier delivery completes, and the
-newer revision stays queued for the next batch instead of being deleted by
-the finishing delivery. An explicit `event` on a resubmission replaces the
-stored one; omission keeps it. Resubmitting a pending URL never resets its
-attempt count or shortens an ongoing retry wait.
+coalesce instead of enqueueing again; the interval gate applies only when no
+queue row exists, so a resubmission arriving while the URL's own follow-up
+delivery is in flight always lands in the queue. A resubmitted dead URL is
+revived with a fresh attempt budget. Each pending URL carries a `revision`
+bumped by every external resubmission, so a change that lands while an
+earlier change for the same URL is in flight is preserved: the earlier
+delivery completes, and the newer revision stays queued for the next batch
+instead of being deleted by the finishing delivery. An explicit `event` on a
+resubmission replaces the stored one (pending coalescing and dead-row
+revival alike); omission keeps it. Resubmitting a pending URL never resets
+its attempt count or shortens an ongoing retry wait.
 
 ## Receipts
 

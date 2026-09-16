@@ -76,6 +76,30 @@ function manualDrain(a: RelayApp, fetch: FetchLike, isStopped: () => boolean = (
   )
 }
 
+/** Deferred fetch that queues one pending response per call. */
+function steppedFetch(): { fetch: FetchLike; calls: RecordedCall[]; resolveNext: (status: number) => void } {
+  const calls: RecordedCall[] = []
+  const pending: Array<(status: number) => void> = []
+  const fetch: FetchLike = async (url, init) => {
+    calls.push({
+      url,
+      body: JSON.parse((init.body as string | undefined) ?? '{}') as RecordedCall['body'],
+    })
+    return new Promise<number>((resolve) => {
+      pending.push(resolve)
+    }).then((statusCode) => new Response('', { status: statusCode }))
+  }
+  return {
+    fetch,
+    calls,
+    resolveNext: (statusCode) => {
+      const release = pending.shift()
+      if (release === undefined) throw new Error('no fetch call is waiting')
+      release(statusCode)
+    },
+  }
+}
+
 const apps: RelayApp[] = []
 
 function track(a: RelayApp): RelayApp {
@@ -354,26 +378,58 @@ describe('in-flight resubmission preservation', () => {
     expect(a.batches.list(undefined, 10)[0]!.status).toBe('in_flight')
   })
 
+  test('a resubmission during follow-up delivery is preserved, not suppressed', async () => {
+    const stepped = steppedFetch()
+    const a = track(createTestApp({ fetchImpl: stepped.fetch }))
+    const token = findToken(a.config.auth.tokens, ADMIN_TOKEN)!
+    let stop = false
+    const url = 'https://www.example.com/a'
+
+    a.enqueue.submit(token, [url], undefined)
+    const draining = manualDrain(a, stepped.fetch, () => stop)
+    await waitFor(() => stepped.calls.length === 1, 3000, 'first batch in flight')
+
+    // first follow-up lands mid-flight (revision 2)
+    a.enqueue.submit(token, [url], undefined)
+    stepped.resolveNext(200)
+    await waitFor(() => stepped.calls.length === 2, 3000, 'follow-up batch in flight')
+
+    // the first success was just recorded, so the resubmit-interval gate is
+    // active - it must still coalesce into the in-flight follow-up row
+    // instead of being suppressed and lost when that row delivers
+    const third = a.enqueue.submit(token, [url], 'updated')
+    expect(third.coalesced).toBe(1)
+
+    stop = true
+    stepped.resolveNext(200)
+    await draining
+
+    const row = a.pendingUrls.get(WWW_HOST, url)!
+    expect(row.status).toBe('pending')
+    expect(row.revision).toBe(3)
+    expect(row.event_type).toBe('updated')
+    expect(row.lease_id).toBeNull()
+  })
+
   test('an expired lease completed late does not touch the new lease', () => {
     const a = track(createTestApp())
     const url = 'https://www.example.com/a'
     a.enqueue.submit(findToken(a.config.auth.tokens, ADMIN_TOKEN)!, [url], undefined)
+    const staleClaim = { url, event_type: null, attempts: 0, revision: 1 }
 
-    // worker-1 claimed at revision 1; the URL was resubmitted (revision 2);
-    // worker-1's lease expired and worker-2 re-claimed the same row.
+    // same-revision replacement lease: the lease predicate alone must block
+    // the stale worker's delete
+    a.db.prepare("UPDATE pending_urls SET lease_id = 'lease-2' WHERE url = ?").run(url)
+    expect(a.pendingUrls.deleteLeased(WWW_HOST, 'lease-1', [staleClaim])).toBe(0)
+    expect(a.pendingUrls.releaseFollowUps(WWW_HOST, 'lease-1', [staleClaim], 0)).toEqual([])
+
+    // resubmitted row re-leased elsewhere: the revision guard holds too
     a.db
       .prepare("UPDATE pending_urls SET lease_id = 'lease-2', revision = 2 WHERE url = ?")
       .run(url)
+    expect(a.pendingUrls.deleteLeased(WWW_HOST, 'lease-1', [staleClaim])).toBe(0)
+    expect(a.pendingUrls.releaseFollowUps(WWW_HOST, 'lease-1', [staleClaim], 0)).toEqual([])
 
-    const stale = a.pendingUrls.deleteLeased(WWW_HOST, 'lease-1', [
-      { url, event_type: null, attempts: 0, revision: 1 },
-    ])
-    const released = a.pendingUrls.releaseFollowUps(WWW_HOST, 'lease-1', [
-      { url, event_type: null, attempts: 0, revision: 1 },
-    ], 0)
-
-    expect(stale).toBe(0)
-    expect(released).toEqual([])
     const row = a.pendingUrls.get(WWW_HOST, url)!
     expect(row.lease_id).toBe('lease-2')
     expect(row.revision).toBe(2)

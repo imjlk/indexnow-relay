@@ -98,17 +98,25 @@ export class PendingUrlsRepository {
   }
 
   /** A dead URL was resubmitted: revive it as pending with fresh attempts. */
-  reviveDead(siteHost: string, url: string, now: number, dueAt: number, receiptId: string): void {
+  reviveDead(
+    siteHost: string,
+    url: string,
+    now: number,
+    dueAt: number,
+    receiptId: string,
+    eventType: string | undefined,
+  ): void {
     this.#db
       .query(
         `UPDATE pending_urls
          SET status = 'pending', attempts = 0, last_error = NULL,
              first_seen_at = ?, last_seen_at = ?, due_at = ?, last_receipt_id = ?,
+             event_type = COALESCE(?, event_type),
              revision = 1, not_before_at = 0,
              lease_id = NULL, lease_until = NULL
          WHERE site_host = ? AND url = ? AND status = 'dead'`,
       )
-      .run(now, now, dueAt, receiptId, siteHost, url)
+      .run(now, now, dueAt, receiptId, eventType ?? null, siteHost, url)
   }
 
   hasDueWork(siteHost: string, now: number): boolean {
