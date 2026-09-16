@@ -39,7 +39,9 @@ Bun.serve({
   fetch() {
     const phase = readFileSync(state, 'utf8').trim()
     writeFileSync(state, 'answered')
-    return new Response('', { status: phase === 'waiting' ? 503 : 200 })
+    return phase === 'waiting'
+      ? new Response('', { status: 503, headers: { 'retry-after': '120' } })
+      : new Response('', { status: 200 })
   },
 })
 EOF
@@ -89,15 +91,23 @@ for _ in $(seq 1 100); do
   fi
   sleep 0.2
 done
-curl -fsS "http://127.0.0.1:$PORT_ONE/v1/admin/overview" \
-  -H "Authorization: Bearer $TOKEN" | grep -q '"retryNotBefore":"2' || {
+cooldown_before="$(curl -fsS "http://127.0.0.1:$PORT_ONE/v1/admin/overview" \
+  -H "Authorization: Bearer $TOKEN" | grep -o '"retryNotBefore":"[^"]*"' | head -1)"
+[ -n "$cooldown_before" ] || {
   echo "smoke: the 503 never produced a site cooldown" >&2
+  exit 1
+}
+# Retry-After: 120 must win over the default backoff (~30-39s): the persisted
+# deadline has to sit at least 110s out
+cooldown_iso="$(printf '%s' "$cooldown_before" | sed 's/.*:"//;s/"$//')"
+cooldown_epoch="$(bun -e 'console.log(Date.parse(process.argv[1]!))' "$cooldown_iso")"
+now_epoch="$(bun -e 'console.log(Date.now())')"
+[ "$((cooldown_epoch - now_epoch))" -ge 110000 ] || {
+  echo "smoke: cooldown does not reflect Retry-After: 120 ($cooldown_before)" >&2
   exit 1
 }
 
 echo "== 2/5 pending queue and site cooldown survive a restart =="
-cooldown_before="$(curl -fsS "http://127.0.0.1:$PORT_ONE/v1/admin/overview" \
-  -H "Authorization: Bearer $TOKEN" | grep -o '"retryNotBefore":"[^"]*"')"
 stop_server
 sleep 0.5
 start_server "$WORK/server2.log"
@@ -150,15 +160,32 @@ export default defineConfig({
 })
 EOF
 export INDEXNOW_RELAY_CONFIG="$WORK/relay.config.ts"
-# foreground run: startup must fail fast instead of serving
-if PORT="$PORT_ONE" bun "$DIST_DIR/server.js" > "$WORK/conflict.log" 2>&1; then
-  echo "smoke: conflicting config sources must fail fast" >&2
+# startup must fail fast instead of serving: run with a watchdog so a
+# regression (both sources accepted) fails the scenario instead of hanging
+set +e
+PORT="$PORT_ONE" bun "$DIST_DIR/server.js" > "$WORK/conflict.log" 2>&1 &
+CONFLICT_PID=$!
+SERVER_PID="$CONFLICT_PID"
+for _ in $(seq 1 50); do
+  kill -0 "$CONFLICT_PID" 2>/dev/null || break
+  sleep 0.2
+done
+if kill -0 "$CONFLICT_PID" 2>/dev/null; then
+  echo "smoke: conflicting config sources must fail fast (server kept running)" >&2
   exit 1
 fi
+wait "$CONFLICT_PID"
+CONFLICT_EXIT=$?
+set -e
+[ "$CONFLICT_EXIT" -ne 0 ] || {
+  echo "smoke: conflicting config sources exited 0" >&2
+  exit 1
+}
 grep -qi 'INDEXNOW_SITES' "$WORK/conflict.log" || {
   echo "smoke: conflict error did not name the two sources" >&2
   exit 1
 }
+SERVER_PID=""
 unset INDEXNOW_RELAY_CONFIG
 rm -f "$WORK/relay.config.ts"
 
