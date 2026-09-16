@@ -80,11 +80,18 @@ export class EnqueueService {
     }
 
     // 3. A key file below a subdirectory only authorizes URLs under it
-    // (IndexNow key-location scope), checked on path-segment boundaries.
+    // (IndexNow key-location scope). The prefix comparison includes the
+    // path separator: /catalog/ is in scope under /catalog; /catalogue and
+    // a bare /catalog are not. Encoded separators are rejected outright -
+    // URL.pathname keeps them encoded, but origin servers may decode them
+    // into real directory traversal.
     for (const item of normalized) {
+      if (/%2f|%5c/i.test(item.path) && invalid.length < 10) {
+        invalid.push({ url: item.url, reason: 'encoded path separators are not accepted' })
+        continue
+      }
       const scope = this.#deps.registry.get(item.host)!.keyScopeDir
-      const inScope =
-        scope === '' || item.path === scope || item.path.startsWith(`${scope}/`)
+      const inScope = scope === '' || item.path.startsWith(`${scope}/`)
       if (!inScope && invalid.length < 10) {
         invalid.push({
           url: item.url,

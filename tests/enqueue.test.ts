@@ -294,7 +294,7 @@ describe('EnqueueService.submit', () => {
 
     const ok = created.enqueue.submit(
       token,
-      ['https://www.example.com/catalog/item/1', 'https://www.example.com/catalog/', 'https://www.example.com/catalog'],
+      ['https://www.example.com/catalog/item/1', 'https://www.example.com/catalog/', 'https://www.example.com/catalog/deep/nested'],
       undefined,
     )
     expect(ok.enqueued).toBe(3)
@@ -302,13 +302,17 @@ describe('EnqueueService.submit', () => {
     for (const [label, url] of [
       ['sibling prefix', 'https://www.example.com/catalogue/1'],
       ['outside the scope', 'https://www.example.com/help/1'],
+      // the slashless parent is its own resource, not the directory
+      ['slashless parent', 'https://www.example.com/catalog'],
+      // encoded separators decode into traversal on many origins
+      ['encoded traversal', 'https://www.example.com/catalog/..%2fhelp'],
     ] as const) {
       const error = capture(() => created.enqueue.submit(token, [url], undefined))
       expect(errorCode(error)).toBe('INVALID_URL')
       const detail = ((error as { data?: { urls?: Array<{ url: string; reason: string }> } }).data?.urls) ?? []
       expect(detail).toHaveLength(1)
       expect(detail[0]!.url).toBe(url)
-      expect(detail[0]!.reason).toContain('scope')
+      expect(detail[0]!.reason).not.toContain(WWW_KEY)
       void label
     }
 

@@ -15,11 +15,12 @@ the hostname to an IndexNow key environment reference. Keys are 8-128
 characters of letters, digits, or hyphens, validated and preserved verbatim -
 never lowercased or trimmed, since the key file must match byte for byte. An
 advanced object form overrides the key file path (`keyPath`, default
-`/{key}.txt`, must contain `{key}` exactly once; query strings, fragments,
-backslashes, control characters, and `..` segments are rejected), batch size,
-minimum resubmit interval, and enabled flag. A key file below a subdirectory
-limits the site to submitting URLs under that directory, compared on path
-segment boundaries.
+`/{key}.txt`, must contain `{key}` exactly once in its final path segment;
+queries, fragments, backslashes, encoded separators, control characters, and
+`..` segments are rejected), batch size, minimum resubmit interval, and
+enabled flag. A key file below a subdirectory limits the site to submitting
+URLs under that directory (prefix including the path separator), and error
+messages never embed the key or its derived location.
 The full key location URL is derived, never repeated by the operator. Auth is
 one bearer token by default, or a map of scoped tokens where each token names
 the hosts it may touch (stored normalized and de-duplicated, so case or
@@ -44,8 +45,8 @@ startup logs list hostnames only.
 number of configured hosts in one request, plus an optional `event`
 (`created`/`updated`/`deleted`) used for operational context only. URLs are
 normalized: fragments stripped, default ports removed, empty paths become
-`/`, hosts lowercased. A URL outside its site's key-file directory scope is
-an `INVALID_URL` like any other invalid URL. Validation is all-or-nothing —
+`/`, hosts lowercased. A URL outside its site's key-file directory scope, or carrying an encoded
+path separator, is an `INVALID_URL` like any other invalid URL. Validation is all-or-nothing —
 if any URL is invalid (`INVALID_URL` 400), any host is unconfigured
 (`UNKNOWN_SITE` 400), or the token lacks access to any host
 (`FORBIDDEN_SITE` 403), nothing is enqueued.

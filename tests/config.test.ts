@@ -166,8 +166,25 @@ describe('normalizeRelayConfig', () => {
       '/catalog/../{key}.txt',             // dot-dot segment
       '/cat alog/{key}.txt',               // whitespace (would be percent-encoded)
       '/no-placeholder.txt',               // missing placeholder
+      '/catalog/%2f{key}.txt',             // encoded separator
+      '/catalog/%5C{key}.txt',             // encoded backslash
     ]
+    const key = 'a1b2c3d4e5f60718'
     for (const keyPath of badPaths) {
+      let message = ''
+      try {
+        normalizeRelayConfig(baseConfig({ sites: { 'www.example.com': { key, keyPath } } }))
+      } catch (error) {
+        message = (error as ConfigError).message
+      }
+      expect(message).not.toBe('')
+      // the resolved location embeds the secret key; it must never surface
+      expect(message).not.toContain(key)
+    }
+  })
+
+  test('keeps the placeholder in the final path segment so the scope is the key directory', () => {
+    for (const keyPath of ['/{key}/proof.txt', '/catalog/{key}/proof.txt']) {
       expect(() =>
         normalizeRelayConfig(baseConfig({ sites: { 'www.example.com': { key: 'a1b2c3d4e5f60718', keyPath } } })),
       ).toThrow(ConfigError)

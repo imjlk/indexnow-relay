@@ -104,17 +104,20 @@ function normalizeKeyPath(
   const resolved = keyPath ?? DEFAULT_KEY_PATH
   const placeholder = '{key}'
   const placeholderCount = resolved.split(placeholder).length - 1
+  const placeholderAt = resolved.indexOf(placeholder)
   if (
     !resolved.startsWith('/') ||
     placeholderCount !== 1 ||
     resolved.includes('\\') ||
+    resolved.indexOf('/', placeholderAt) !== -1 ||
+    /%2f|%5c/i.test(resolved) ||
     /[?#\u0000-\u001f\u007f]/.test(resolved) ||
     resolved.split('/').includes('..')
   ) {
     throw new ConfigError(
-      `sites.${host}.keyPath must be a path on this site starting with "/", containing the ` +
-        '{key} placeholder exactly once, without query, fragment, backslash, control ' +
-        'characters, or ".." segments.',
+      `sites.${host}.keyPath must be a plain path on this site: it must start with "/", ` +
+        'contain the {key} placeholder exactly once in the final path segment, and carry no ' +
+        'query, fragment, backslash, encoded separator, control character, or ".." segment.',
     )
   }
 
@@ -128,15 +131,18 @@ function normalizeKeyPath(
   // The built URL must round-trip to the configured path; anything the URL
   // parser would rewrite (dot segments are rejected above; non-ASCII or
   // whitespace would be percent-encoded and no longer match the origin file)
-  // is refused instead of silently changing meaning.
+  // is refused instead of silently changing meaning. The resolved path is
+  // deliberately kept out of the message - it embeds the secret key.
   if (keyLocation.hostname !== host || keyLocation.pathname !== substituted) {
     throw new ConfigError(
-      `sites.${host}.keyPath must stay a plain path on "${host}" - it resolved to ` +
-        `${keyLocation.hostname}${keyLocation.pathname}.`,
+      `sites.${host}.keyPath must stay a plain, already-encoded path on "${host}" ` +
+        '(non-ASCII or whitespace would be rewritten by the URL parser).',
     )
   }
 
-  const scopeEnd = resolved.lastIndexOf('/', resolved.indexOf(placeholder))
+  // The placeholder sits in the final segment, so its directory is the key
+  // file's directory: exactly the scope IndexNow grants.
+  const scopeEnd = resolved.lastIndexOf('/')
   return { keyPath: resolved, keyScopeDir: scopeEnd <= 0 ? '' : resolved.slice(0, scopeEnd) }
 }
 
