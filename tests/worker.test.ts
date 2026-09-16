@@ -338,7 +338,9 @@ describe('in-flight resubmission preservation', () => {
     expect(row.last_error).toBeNull()
     expect(row.event_type).toBe('updated')
     expect(row.first_seen_at).toBe(row.last_seen_at)
-    expect(row.not_before_at).toBeGreaterThan(Date.now())
+    // the floor is exactly the just-recorded success + the site interval
+    const sentAt = a.submissionState.getSentAt(WWW_HOST, ['https://www.example.com/a']).get('https://www.example.com/a')!
+    expect(row.not_before_at).toBe(sentAt + a.config.sites[WWW_HOST]!.minResubmitIntervalMs)
     expect(row.due_at).toBe(row.not_before_at)
   })
 
