@@ -57,7 +57,7 @@ export function parseRetryAfterMs(header: string | null | undefined, now: number
     return seconds * 1000
   }
 
-  const date = httpDateUtcMs(raw)
+  const date = httpDateUtcMs(raw, now)
   if (date === undefined) return undefined
   const delay = date - now
   if (delay <= 0) return undefined
@@ -73,8 +73,8 @@ interface DateComponents {
   second: number
 }
 
-function httpDateUtcMs(raw: string): number | undefined {
-  const components = decomposeHttpDate(raw)
+function httpDateUtcMs(raw: string, now: number): number | undefined {
+  const components = decomposeHttpDate(raw, now)
   if (components === undefined) return undefined
   const { year, monthIndex, day, hour, minute, second } = components
 
@@ -100,7 +100,7 @@ function httpDateUtcMs(raw: string): number | undefined {
   return ms
 }
 
-function decomposeHttpDate(raw: string): DateComponents | undefined {
+function decomposeHttpDate(raw: string, now: number): DateComponents | undefined {
   const fixdate = IMF_FIXDATE_PATTERN.exec(raw)
   if (fixdate !== null) {
     const [, day, month, year, hour, minute, second] = fixdate
@@ -117,10 +117,15 @@ function decomposeHttpDate(raw: string): DateComponents | undefined {
   const rfc850 = RFC_850_PATTERN.exec(raw)
   if (rfc850 !== null) {
     const [, day, month, twoDigitYear, hour, minute, second] = rfc850
+    // RFC 9110: a two-digit year resolves within 50 years of now - 00-49
+    // is this century unless that lands more than 50 years ahead, then it
+    // is the previous century.
     const year = Number(twoDigitYear)
+    const thisCentury = year < 100 ? 2000 + year : year
+    const currentYear = new Date(now).getUTCFullYear()
+    const resolved = thisCentury > currentYear + 50 ? thisCentury - 100 : thisCentury
     return {
-      // RFC 850 two-digit years: 00-49 -> 2000s, 50-99 -> 1900s
-      year: year < 50 ? year + 2000 : year + 1900,
+      year: resolved,
       monthIndex: MONTH_INDEX[month!]!,
       day: Number(day),
       hour: Number(hour),

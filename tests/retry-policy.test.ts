@@ -77,7 +77,8 @@ describe('parseRetryAfterMs', () => {
       'Wednesday, 31-Sep-26 12:00:00 GMT',
       'Wed Sep 31 12:00:00 2026',
       'Mon, 30 Feb 2028 12:00:00 GMT',
-      'Wed Feb 29 2027 12:00:00 00', // 2027 is not a leap year - and bad year digits
+      'Mon, 29 Feb 2027 12:00:00 GMT', // 2027 is not a leap year
+      'Mon Feb 29 12:00:00 2027',
       // plain out-of-range fields
       'Wed Sep 16 99:00:00 2026',
       'Wed Sep 16 12:99:00 2026',
@@ -90,6 +91,23 @@ describe('parseRetryAfterMs', () => {
     }
     // a real leap day stays valid
     expect(parseRetryAfterMs('Mon, 29 Feb 2028 12:00:00 GMT', Date.UTC(2028, 1, 29, 11))).toBe(3_600_000)
+  })
+
+  test('RFC 850 two-digit years resolve within 50 years of now', () => {
+    const now = Date.UTC(2026, 8, 16, 12)
+    // 50 lands in this century (2050 <= 2026+50)
+    expect(parseRetryAfterMs('Saturday, 01-Jan-50 00:01:00 GMT', now)).toBe(
+      Date.UTC(2050, 0, 1, 0, 1, 0) - now,
+    )
+    // 99 is more than 50 years ahead, so it belongs to the previous century
+    expect(parseRetryAfterMs('Sunday, 01-Jan-99 00:01:00 GMT', now)).toBeUndefined()
+    // from a 1990 clock, 30 stays in this century (2030)...
+    const in1990 = Date.UTC(1990, 0, 1)
+    expect(parseRetryAfterMs('Tuesday, 01-Jan-30 00:01:00 GMT', in1990)).toBe(
+      Date.UTC(2030, 0, 1, 0, 1, 0) - in1990,
+    )
+    // ...while 50 rolls back to 1950 - the past - so no wait is recorded
+    expect(parseRetryAfterMs('Tuesday, 01-Jan-50 00:01:00 GMT', in1990)).toBeUndefined()
   })
 })
 
