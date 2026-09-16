@@ -69,6 +69,20 @@ export function normalizeSubmitUrl(raw: string): NormalizedSubmitUrl {
   return { url: parsed.toString(), host, path: parsed.pathname }
 }
 
+/**
+ * RFC 3986 comparison form for paths: escapes of unreserved characters are
+ * decoded (percent-hex uppercased for the rest), so `/c%61t` and `/cat`
+ * compare equal. Escaped separators (%2f, %5c) survive as escapes and
+ * dot-segments that only appear after decoding (`%2e`) are left visible for
+ * callers to reject.
+ */
+export function canonicalizePath(path: string): string {
+  return path.replace(/%([0-9a-fA-F]{2})/g, (_match, hex: string) => {
+    const char = String.fromCharCode(Number.parseInt(hex, 16))
+    return /[A-Za-z0-9-._~]/.test(char) ? char : `%${hex.toUpperCase()}`
+  })
+}
+
 export interface UrlGroup {
   host: string
   urls: string[]

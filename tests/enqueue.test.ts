@@ -341,6 +341,53 @@ describe('EnqueueService.submit', () => {
     expect(created.pendingUrls.listQueue(WWW_HOST, 'pending', 10)).toHaveLength(2)
   })
 
+  test('scope errors never leak the key, and authorization comes first', () => {
+    const secretKey = 'My-Key-7f3A-000000000001'
+    const created = createTestApp({
+      sites: {
+        // the directory itself embeds the key value
+        [WWW_HOST]: { key: secretKey, keyPath: `/x-${secretKey}/{key}.txt` },
+        [BLOG_HOST]: { key: BLOG_KEY, batchSize: 2 },
+      },
+    })
+    apps.push(created)
+    const admin = findToken(created.config.auth.tokens, ADMIN_TOKEN)!
+    const blog = findToken(created.config.auth.tokens, BLOG_TOKEN)!
+
+    // a token unauthorized for the host gets FORBIDDEN_SITE, no scope detail
+    const forbidden = capture(() => created.enqueue.submit(blog, ['https://www.example.com/outside'], undefined))
+    expect(errorCode(forbidden)).toBe('FORBIDDEN_SITE')
+
+    // an authorized token gets INVALID_URL without the configured directory
+    const invalid = capture(() => created.enqueue.submit(admin, ['https://www.example.com/outside'], undefined))
+    expect(errorCode(invalid)).toBe('INVALID_URL')
+    const message = JSON.stringify((invalid as { data?: unknown }).data ?? {})
+    expect(message).not.toContain(secretKey)
+  })
+
+  test('unreserved percent escapes compare equal in both directions', () => {
+    const created = createTestApp({
+      sites: {
+        [WWW_HOST]: { key: WWW_KEY, keyPath: '/catalog/{key}.txt' },
+        [BLOG_HOST]: { key: BLOG_KEY, keyPath: '/%63atalog/{key}.txt', batchSize: 2 },
+      },
+    })
+    apps.push(created)
+    const token = findToken(created.config.auth.tokens, ADMIN_TOKEN)!
+
+    // %61 = 'a': escaped spelling of an in-scope path
+    const escaped = created.enqueue.submit(token, ['https://www.example.com/c%61talog/page'], undefined)
+    expect(escaped.enqueued).toBe(1)
+
+    // scope configured with an escaped letter, URL submitted plainly
+    const plain = created.enqueue.submit(token, ['https://blog.example.com/catalog/page'], undefined)
+    expect(plain.enqueued).toBe(1)
+
+    // decoded dot segments are traversal, not spelling
+    const traversal = capture(() => created.enqueue.submit(token, ['https://www.example.com/catalog/%2e%2e/help'], undefined))
+    expect(errorCode(traversal)).toBe('INVALID_URL')
+  })
+
   test('an out-of-scope URL rejects the whole request all-or-nothing', () => {
     const created = createTestApp({
       sites: {

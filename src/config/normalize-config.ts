@@ -10,6 +10,7 @@ import type {
   SiteConfigInput,
 } from './config.types.ts'
 import { isEnvSecretReference, resolveSecret } from './resolve-secrets.ts'
+import { canonicalizePath } from '../core/url.ts'
 
 export class ConfigError extends Error {
   constructor(message: string) {
@@ -153,12 +154,7 @@ function normalizeKeyPath(
   // scope prefix check matches URLs regardless of escape casing.
   const scopeEnd = resolved.lastIndexOf('/')
   const scopeDir = scopeEnd <= 0 ? '' : resolved.slice(0, scopeEnd)
-  return { keyPath: resolved, keyScopeDir: canonicalizeEscapes(scopeDir) }
-}
-
-/** Upper-cases the hex digits of every percent escape (RFC 3986 canonical form). */
-function canonicalizeEscapes(path: string): string {
-  return path.replace(/%[0-9a-fA-F]{2}/g, (escape) => escape.toUpperCase())
+  return { keyPath: resolved, keyScopeDir: canonicalizePath(scopeDir) }
 }
 
 function normalizeQueue(input: QueueConfigInput | undefined): NormalizedQueueConfig {
