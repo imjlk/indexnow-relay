@@ -66,8 +66,6 @@ export function buildApp(config: NormalizedRelayConfig, options: BuildAppOptions
   const receipts = new ReceiptsRepository(db)
   const siteState = new SiteStateRepository(db)
 
-  const sitemapFetch: FetchLike = options.fetchImpl ?? ((input, init) => fetch(input, init))
-
   const notifier = new WebhookNotifier({
     webhookUrl: config.notifications.webhookUrl,
     format: config.notifications.format,
@@ -107,7 +105,7 @@ export function buildApp(config: NormalizedRelayConfig, options: BuildAppOptions
   })
   enqueue.onEnqueued(() => scheduler.wake())
 
-  const router = createRouter({ config, registry, logger, db, enqueue, pendingUrls, submissionState, receipts, batches, siteState, scheduler, sitemapFetch, notifier } as RelayApp)
+  const router = createRouter({ config, registry, logger, db, enqueue, pendingUrls, submissionState, receipts, batches, siteState, scheduler, notifier } as RelayApp)
   const handler = new OpenAPIHandler<ApiContext>(router, {
     errorStatusMap: ERROR_STATUS_MAP,
     plugins: [
@@ -136,7 +134,6 @@ export function buildApp(config: NormalizedRelayConfig, options: BuildAppOptions
     siteState,
     scheduler,
     handler,
-    sitemapFetch,
     notifier,
   }
 }

@@ -51,6 +51,17 @@ describe('OpenAPI document', () => {
     expect(post.responses['400']).toBeDefined()
   })
 
+  test('no sitemap operation or schema remains after the removal', () => {
+    const paths = document.paths as Record<string, unknown>
+    expect(paths['/v1/sitemap']).toBeUndefined()
+    const serialized = JSON.stringify(document)
+    expect(serialized).not.toContain('submitSitemap')
+    expect(serialized).not.toContain('SitemapSubmitInput')
+    expect(serialized).not.toContain('SITEMAP_FETCH_FAILED')
+    expect(serialized).not.toContain('SITEMAP_INVALID')
+    expect(serialized).not.toContain('SITEMAP_TOO_LARGE')
+  })
+
   test('describes the receipt path parameter', () => {
     type WithParams = { parameters?: Array<{ name: string; in: string }> }
     const paths = document.paths as Record<string, Record<string, WithParams>>

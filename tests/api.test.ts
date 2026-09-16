@@ -101,6 +101,34 @@ describe('POST /v1/urls', () => {
   })
 })
 
+describe('removed POST /v1/sitemap', () => {
+  test('returns the ordinary JSON 404 and never fetches, queues, or receipts', async () => {
+    let fetchCalls = 0
+    const fetch: FetchLike = async () => {
+      fetchCalls += 1
+      throw new Error('no outbound request may happen')
+    }
+    const a = track(createTestApp({ fetchImpl: fetch }))
+
+    const response = await routeRequest(
+      a,
+      new Request(`${BASE}/v1/sitemap`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${ADMIN_TOKEN}` },
+        body: JSON.stringify({ url: 'https://www.example.com/sitemap.xml' }),
+      }),
+    )
+    expect(response.status).toBe(404)
+    const body = await readJson(response)
+    expect(body['code']).toBe('NOT_FOUND')
+
+    await Bun.sleep(50)
+    expect(fetchCalls).toBe(0)
+    expect(a.pendingUrls.queueDepths()).toEqual([])
+    expect((a.db.query('SELECT COUNT(*) AS n FROM receipts').get() as { n: number }).n).toBe(0)
+  })
+})
+
 describe('GET /v1/receipts/{id}', () => {
   test('returns receipt progress and 404 for unknown ids', async () => {
     const a = track(createTestApp({ fetchImpl: neverCalledFetch() }))
