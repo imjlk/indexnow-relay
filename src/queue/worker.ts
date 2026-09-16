@@ -147,10 +147,20 @@ export async function drainSite(
         deps.siteState.extendRetryNotBefore(site.host, retryAt, finishedAt)
         if (applied.retried > 0) {
           deps.batches.markRetry(batchId, retryAt, outcome.httpStatus, errorMessage, finishedAt)
-        } else {
+        } else if (applied.dead > 0) {
           // Every URL exhausted its budget: this batch produced dead
           // letters, not a scheduled retry.
           deps.batches.markDead(batchId, outcome.httpStatus, errorMessage, finishedAt)
+        } else {
+          // The lease expired mid-flight and the sweep already requeued the
+          // rows: they are pending again, so record a retry - not deaths.
+          deps.batches.markRetry(
+            batchId,
+            finishedAt,
+            outcome.httpStatus,
+            `${errorMessage}; lease expired mid-flight, rows requeued`,
+            finishedAt,
+          )
         }
         return applied
       })()
@@ -164,8 +174,8 @@ export async function drainSite(
           httpStatus: outcome.httpStatus,
         })
       }
-      result.batchesRetried += retried > 0 ? 1 : 0
-      result.batchesDead += dead > 0 ? 1 : 0
+      if (retried > 0 || dead === 0) result.batchesRetried += 1
+      if (dead > 0) result.batchesDead += 1
       deps.logger.warn('indexnow batch failed; site cooling down', {
         site: site.host,
         batchId,

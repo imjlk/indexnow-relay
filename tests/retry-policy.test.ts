@@ -34,6 +34,30 @@ describe('parseRetryAfterMs', () => {
     expect(parseRetryAfterMs('soon', NOW)).toBeUndefined()
     expect(parseRetryAfterMs(String(2 ** 31), NOW)).toBeUndefined()
   })
+
+  test('numeric-looking junk is never read as a far-future date', () => {
+    // Date.parse('3600.5') is the year 3600 - it must not become a cooldown
+    expect(parseRetryAfterMs('3600.5', NOW)).toBeUndefined()
+    expect(parseRetryAfterMs('12:00:00', NOW)).toBeUndefined()
+    expect(parseRetryAfterMs('2026-01-01T00:00:00Z', NOW)).toBeUndefined()
+    expect(parseRetryAfterMs('0.5', NOW)).toBeUndefined()
+    // all-digits values are always seconds, never years
+    expect(parseRetryAfterMs('9999', NOW)).toBe(9_999_000)
+  })
+
+  test('accepts the three RFC 9110 date formats', () => {
+    // IMF-fixdate, RFC 850, and asctime resolve to the same instants
+    // Date.parse produces for them
+    expect(parseRetryAfterMs('Wed, 15 Nov 2026 08:12:31 GMT', NOW)).toBe(
+      Date.parse('Wed, 15 Nov 2026 08:12:31 GMT') - NOW,
+    )
+    expect(parseRetryAfterMs('Wednesday, 15-Nov-26 08:12:31 GMT', NOW)).toBe(
+      Date.parse('Wednesday, 15-Nov-26 08:12:31 GMT') - NOW,
+    )
+    expect(parseRetryAfterMs('Sun Nov  6 08:49:37 2028', NOW)).toBe(
+      Date.parse('Sun Nov  6 08:49:37 2028') - NOW,
+    )
+  })
 })
 
 describe('classifySubmitResult', () => {

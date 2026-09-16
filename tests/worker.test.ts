@@ -547,15 +547,22 @@ describe('Retry-After and per-site cooldowns', () => {
   test('resuming a site does not bypass its cooldown', async () => {
     const { a, calls } = coolDownApp(() => new Response('', { status: 429, headers: { 'retry-after': '60' } }))
     a.scheduler.start()
+    const token = findToken(a.config.auth.tokens, ADMIN_TOKEN)!
 
-    a.enqueue.submit(findToken(a.config.auth.tokens, ADMIN_TOKEN)!, [url('a')], undefined)
+    a.enqueue.submit(token, [url('a')], undefined)
     await waitFor(() => calls.length === 1, 3000, 'first 429')
+    await waitFor(() => a.siteState.retryNotBefore(WWW_HOST) > Date.now(), 3000, 'cooldown set')
+    const cooldownAtPause = a.siteState.retryNotBefore(WWW_HOST)
 
     a.siteState.setPaused(WWW_HOST, true, 'ops', Date.now())
     a.siteState.setPaused(WWW_HOST, false, undefined, Date.now())
+    // a fresh, immediately-due URL: only the site cooldown can hold it back
+    a.enqueue.submit(token, [url('fresh')], undefined)
     a.scheduler.wake()
     await Bun.sleep(200)
+
     expect(calls).toHaveLength(1)
+    expect(a.siteState.retryNotBefore(WWW_HOST)).toBe(cooldownAtPause)
   })
 
   test('pausing mid-drain finishes the in-flight batch and starts no new one', async () => {
@@ -576,6 +583,36 @@ describe('Retry-After and per-site cooldowns', () => {
 
     expect(stepped.calls).toHaveLength(1)
     expect(a.pendingUrls.listQueue(WWW_HOST, 'pending', 10)).toHaveLength(1)
+  })
+
+  test('a lease lost mid-flight is recorded as a retry, not deaths', async () => {
+    const stepped = steppedFetch()
+    const a = track(createTestApp({ fetchImpl: stepped.fetch }))
+    const token = findToken(a.config.auth.tokens, ADMIN_TOKEN)!
+    let stop = false
+
+    a.enqueue.submit(token, [url('a')], undefined)
+    const draining = manualDrain(a, stepped.fetch, () => stop)
+    await waitFor(() => stepped.calls.length === 1, 3000, 'batch in flight')
+
+    // the lease expires and the sweep reclaims the rows while the HTTP
+    // call is still pending (e.g. forward clock jump)
+    a.db.prepare('UPDATE pending_urls SET lease_until = ? WHERE site_host = ?').run(Date.now() - 1, WWW_HOST)
+    a.pendingUrls.clearExpiredLeases(Date.now())
+
+    stop = true
+    stepped.resolveNext(503)
+    await draining
+
+    const batch = a.batches.list(undefined, 10)[0]!
+    expect(batch.status).toBe('retry_scheduled')
+    expect(batch.error_message).toContain('lease expired')
+
+    // the stale worker's failure must not have touched the reclaimed rows
+    const row = a.pendingUrls.get(WWW_HOST, url('a'))!
+    expect(row.status).toBe('pending')
+    expect(row.attempts).toBe(0)
+    expect(row.lease_id).toBeNull()
   })
 
   test('exhausted retries are not recorded as a scheduled retry', async () => {
