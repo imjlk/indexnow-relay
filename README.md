@@ -3,7 +3,7 @@
 [![CI](https://github.com/imjlk/indexnow-relay/actions/workflows/ci.yml/badge.svg)](https://github.com/imjlk/indexnow-relay/actions/workflows/ci.yml)
 [![Release](https://github.com/imjlk/indexnow-relay/actions/workflows/release.yml/badge.svg)](https://github.com/imjlk/indexnow-relay/actions/workflows/release.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-![Image](https://img.shields.io/badge/image-ghcr.io-imjlk%2Findexnow--relay-2496ed)
+![Image](https://img.shields.io/badge/ghcr-imjlk%2Findexnow--relay-2496ed?logo=docker&logoColor=white)
 
 A self-hosted [IndexNow](https://www.indexnow.org/) relay for any number of
 sites. Submit URLs once; the relay batches, coalesces, retries, and delivers
