@@ -543,8 +543,10 @@ describe('dead-letter retention anchoring', () => {
   test('retry exhaustion stamps the failure time, not the original submission time', () => {
     const a = track(createTestApp())
     const token = findToken(a.config.auth.tokens, ADMIN_TOKEN)!
-    const T = Date.now()
-
+    const realNow = Date.now
+    const T = realNow()
+    Date.now = () => T
+    try {
     a.enqueue.submit(token, [url('old')], undefined)
     a.enqueue.submit(token, [url('mixed-pending')], undefined)
     // received 31 days before the retry that exhausts it
@@ -567,13 +569,18 @@ describe('dead-letter retention anchoring', () => {
     expect(a.pendingUrls.purgeOlderThan(T)).toBe(0)
     // a moment past 30 days it is purged (both rows of this claim died)
     expect(a.pendingUrls.purgeOlderThan(T + 1)).toBe(2)
+    } finally {
+      Date.now = realNow
+    }
   })
 
   test('rows that still have retries left keep their original timing', () => {
     const a = track(createTestApp())
     const token = findToken(a.config.auth.tokens, ADMIN_TOKEN)!
-    const T = Date.now()
-
+    const realNow = Date.now
+    const T = realNow()
+    Date.now = () => T
+    try {
     a.enqueue.submit(token, [url('will-retry')], undefined)
     a.db
       .prepare('UPDATE pending_urls SET first_seen_at = ?, last_seen_at = ? WHERE url = ?')
@@ -587,13 +594,18 @@ describe('dead-letter retention anchoring', () => {
     expect(row.status).toBe('pending')
     expect(row.last_seen_at).toBe(T - 40 * DAY)
     expect(a.pendingUrls.purgeOlderThan(T - 30 * DAY)).toBe(0)
+    } finally {
+      Date.now = realNow
+    }
   })
 
   test('a mixed batch only stamps the rows that actually died', () => {
     const a = track(createTestApp())
     const token = findToken(a.config.auth.tokens, ADMIN_TOKEN)!
-    const T = Date.now()
-
+    const realNow = Date.now
+    const T = realNow()
+    Date.now = () => T
+    try {
     a.enqueue.submit(token, [url('dies'), url('retries')], undefined)
     a.db
       .prepare('UPDATE pending_urls SET attempts = ? WHERE url = ?')
@@ -611,19 +623,33 @@ describe('dead-letter retention anchoring', () => {
 
     expect(a.pendingUrls.get(WWW_HOST, url('dies'))!.last_seen_at).toBe(T)
     expect(a.pendingUrls.get(WWW_HOST, url('retries'))!.last_seen_at).toBe(oldSeen)
+    } finally {
+      Date.now = realNow
+    }
   })
 
   test('permanent failures keep their existing transition-time behavior', () => {
     const a = track(createTestApp())
     const token = findToken(a.config.auth.tokens, ADMIN_TOKEN)!
-    const T = Date.now()
+    const realNow = Date.now
+    const submittedAt = realNow()
+    let clock = submittedAt
+    Date.now = () => clock
+    try {
+      a.enqueue.submit(token, [url('permanent')], undefined)
+      // fail five seconds after submission, deterministically
+      const T = submittedAt + 5_000
+      clock = T
 
-    a.enqueue.submit(token, [url('permanent')], undefined)
-    const claimed = a.pendingUrls.claimDue(WWW_HOST, T, 10, 'lease-1', T + 60_000)
-    expect(claimed).toHaveLength(1)
-    a.pendingUrls.deadLeased(WWW_HOST, 'lease-1', T, 'http_403')
+      const claimed = a.pendingUrls.claimDue(WWW_HOST, T, 10, 'lease-1', T + 60_000)
+      expect(claimed).toHaveLength(1)
+      a.pendingUrls.deadLeased(WWW_HOST, 'lease-1', T, 'http_403')
 
-    expect(a.pendingUrls.listDead(WWW_HOST, 10)[0]!.last_seen_at).toBe(T)
+      // the anchor advances from submission time to failure time
+      expect(a.pendingUrls.listDead(WWW_HOST, 10)[0]!.last_seen_at).toBe(T)
+    } finally {
+      Date.now = realNow
+    }
   })
 })
 
