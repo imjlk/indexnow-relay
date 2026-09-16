@@ -22,7 +22,9 @@ export interface SubmitUrlsInput {
 
 export interface SiteSubmissionSummary {
   host: string
+  /** URLs that got a fresh queue row this request: new, revived, or reserved for a deferred redelivery. */
   enqueued: number
+  /** URLs merged into an already-queued row (including duplicates within this request). */
   coalesced: number
 }
 

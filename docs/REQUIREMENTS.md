@@ -41,19 +41,24 @@ normalized: fragments stripped, default ports removed, empty paths become
 token lacks access to any host (`FORBIDDEN_SITE` 403), nothing is enqueued.
 Accepted submissions return a receipt with per-host `enqueued` and
 `coalesced` counts, and all writes land in a single SQLite transaction.
-Duplicates within one request, resubmissions while a URL is still pending,
-and resubmissions within the site's resubmit interval after a successful send
-coalesce instead of enqueueing again; the interval gate applies only when no
-queue row exists, so a resubmission arriving while the URL's own follow-up
-delivery is in flight always lands in the queue. A resubmitted dead URL is
-revived with a fresh attempt budget. Each pending URL carries a `revision`
-bumped by every external resubmission, so a change that lands while an
-earlier change for the same URL is in flight is preserved: the earlier
-delivery completes, and the newer revision stays queued for the next batch
-instead of being deleted by the finishing delivery. An explicit `event` on a
-resubmission replaces the stored one (pending coalescing and dead-row
-revival alike); omission keeps it. Resubmitting a pending URL never resets
-its attempt count or shortens an ongoing retry wait.
+Duplicates within one request and resubmissions while a URL is still pending
+coalesce instead of enqueueing again. A resubmission inside the site's
+resubmit interval after a successful send is not dropped: the relay reserves
+exactly one deferred redelivery whose delivery floor is the last success plus
+the interval, delivered once it passes; repeated resubmissions merge into
+that reservation without postponing it, and no redelivery ever happens
+without a new submission. Dead-row revival applies the same floor when a
+recent success exists. Each pending URL carries a `revision` bumped by every
+external resubmission, so a change that lands while an earlier change for
+the same URL is in flight is preserved: the earlier delivery completes, and
+the newer revision stays queued for the next batch instead of being deleted
+by the finishing delivery. An explicit `event` on a resubmission replaces
+the stored one (pending coalescing and dead-row revival alike); omission
+keeps it. Resubmitting a pending URL never resets its attempt count or
+shortens an ongoing retry wait. Counters are exact: `enqueued` counts fresh
+queue rows (new, revived, or deferred reservations), `coalesced` counts
+merges into existing rows, and `received = enqueued + coalesced` always
+holds.
 
 ## Receipts
 
