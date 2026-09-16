@@ -301,9 +301,11 @@ fail permanently into dead letters.
   SQLite file. Boot-time lease recovery handles crashes of *that one
   process*; it is not multi-instance support. Never point two relay
   processes at the same database file.
-- **Upgrading** — stop the old container, back up the data volume
-  (`docker run --rm -v indexnow-relay-data:/data -v "$PWD":/backup alpine
-  cp -a /data /backup`), start the new version, then check `/health/ready`
+- **Upgrading** — stop the old container, back up its data volume
+  (`docker run --rm --volumes-from indexnow-relay:ro -v "$PWD":/backup alpine
+  cp -a /data /backup` - works for both `docker run` and Compose since it
+  reads whatever volume the stopped container actually uses), start the new
+  version, then check `/health/ready`
   and the admin overview. Database migrations run on boot; rolling back to
   an older image after a migration is not guaranteed safe - restore the
   volume backup instead. Pin a version tag (`ghcr.io/imjlk/indexnow-relay:X.Y.Z`)
