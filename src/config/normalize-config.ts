@@ -101,6 +101,12 @@ function normalizeQueue(input: QueueConfigInput | undefined): NormalizedQueueCon
     ...definedEntries(input),
   }
 
+  // A raised default base must not break a config that only pins the
+  // ceiling: keep the default base at or below an explicitly supplied max.
+  if (input?.backoffBaseMs === undefined && merged.backoffMaxMs < DEFAULT_QUEUE_CONFIG.backoffBaseMs) {
+    merged.backoffBaseMs = merged.backoffMaxMs
+  }
+
   if (merged.maxCoalesceDelayMs < merged.batchWindowMs) {
     throw new ConfigError(
       `queue.maxCoalesceDelayMs (${merged.maxCoalesceDelayMs}) must be >= queue.batchWindowMs (${merged.batchWindowMs}).`,

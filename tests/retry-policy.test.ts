@@ -109,6 +109,17 @@ describe('parseRetryAfterMs', () => {
     // ...while 50 rolls back to 1950 - the past - so no wait is recorded
     expect(parseRetryAfterMs('Tuesday, 01-Jan-50 00:01:00 GMT', in1990)).toBeUndefined()
   })
+
+  test('the 50-year boundary compares full timestamps, not just years', () => {
+    // now = 2026-09-16T12:00:00Z; 2076-09-16T12:00:00Z is exactly 50 years
+    // ahead and stays in this century...
+    const now = Date.UTC(2026, 8, 16, 12)
+    expect(parseRetryAfterMs('Wednesday, 16-Sep-76 12:00:00 GMT', now)).toBe(
+      Date.UTC(2076, 8, 16, 12) - now,
+    )
+    // ...one day later crosses the boundary and belongs to 1976 - the past
+    expect(parseRetryAfterMs('Thursday, 17-Sep-76 12:00:00 GMT', now)).toBeUndefined()
+  })
 })
 
 describe('classifySubmitResult', () => {

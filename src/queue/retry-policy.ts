@@ -66,6 +66,8 @@ export function parseRetryAfterMs(header: string | null | undefined, now: number
 
 interface DateComponents {
   year: number
+  /** RFC 850 form: the century still needs resolving against `now`. */
+  twoDigitYear?: boolean
   monthIndex: number
   day: number
   hour: number
@@ -74,14 +76,22 @@ interface DateComponents {
 }
 
 function httpDateUtcMs(raw: string, now: number): number | undefined {
-  const components = decomposeHttpDate(raw, now)
+  const components = decomposeHttpDate(raw)
   if (components === undefined) return undefined
-  const { year, monthIndex, day, hour, minute, second } = components
+  const { monthIndex, day, hour, minute, second } = components
 
   if (hour > 23 || minute > 59 || second > 60) return undefined
   // Second 60 is a leap second: the instant is the start of the next minute.
   const wholeSecond = second === 60 ? 59 : second
-  const ms = Date.UTC(year, monthIndex, day, hour, minute, wholeSecond) + (second === 60 ? 1000 : 0)
+  const build = (year: number): number =>
+    Date.UTC(year, monthIndex, day, hour, minute, wholeSecond) + (second === 60 ? 1000 : 0)
+
+  let year = components.year
+  let ms = build(year)
+  if (components.twoDigitYear === true && ms > fiftyYearsAfterUtc(now)) {
+    year -= 100
+    ms = build(year)
+  }
 
   // Reject calendar overflow (Feb 30, Sep 31, ...) instead of letting
   // Date.UTC roll it into the next month. The leap second's +1s is undone
@@ -100,7 +110,20 @@ function httpDateUtcMs(raw: string, now: number): number | undefined {
   return ms
 }
 
-function decomposeHttpDate(raw: string, now: number): DateComponents | undefined {
+/** The UTC instant exactly 50 calendar years after `now`. */
+function fiftyYearsAfterUtc(now: number): number {
+  const current = new Date(now)
+  return Date.UTC(
+    current.getUTCFullYear() + 50,
+    current.getUTCMonth(),
+    current.getUTCDate(),
+    current.getUTCHours(),
+    current.getUTCMinutes(),
+    current.getUTCSeconds(),
+  )
+}
+
+function decomposeHttpDate(raw: string): DateComponents | undefined {
   const fixdate = IMF_FIXDATE_PATTERN.exec(raw)
   if (fixdate !== null) {
     const [, day, month, year, hour, minute, second] = fixdate
@@ -117,15 +140,13 @@ function decomposeHttpDate(raw: string, now: number): DateComponents | undefined
   const rfc850 = RFC_850_PATTERN.exec(raw)
   if (rfc850 !== null) {
     const [, day, month, twoDigitYear, hour, minute, second] = rfc850
-    // RFC 9110: a two-digit year resolves within 50 years of now - 00-49
-    // is this century unless that lands more than 50 years ahead, then it
-    // is the previous century.
-    const year = Number(twoDigitYear)
-    const thisCentury = year < 100 ? 2000 + year : year
-    const currentYear = new Date(now).getUTCFullYear()
-    const resolved = thisCentury > currentYear + 50 ? thisCentury - 100 : thisCentury
     return {
-      year: resolved,
+      // RFC 9110: a two-digit year resolves to the same century as now,
+      // unless the full timestamp would land more than 50 years ahead -
+      // then it belongs to the previous century. The century check runs in
+      // httpDateUtcMs on the built timestamp, not just the year.
+      year: 2000 + Number(twoDigitYear),
+      twoDigitYear: true,
       monthIndex: MONTH_INDEX[month!]!,
       day: Number(day),
       hour: Number(hour),
