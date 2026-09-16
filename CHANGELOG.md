@@ -1,5 +1,32 @@
 # indexnow-relay
 
+## 0.6.0 — 2026-09-16
+
+### Removed
+
+- [fc6e79e](https://github.com/imjlk/indexnow-relay/commit/fc6e79e0c25af8f98c94ea55dce21b5c58e67c78) Remove `POST /v1/sitemap` and all server-side sitemap fetching (remote
+  downloads, `<loc>` extraction, sitemap-index traversal, the dedicated error
+  codes, and the sitemap-specific fetch injection).
+  
+  The relay's job is now exactly: accept authenticated URL lists, keep them
+  safe, and deliver them to IndexNow. Existing callers must prepare their URL
+  lists and submit them through `POST /v1/urls` before upgrading - split at
+  10,000 URLs per request; receipts acknowledge queueing, not indexing. Keep
+  each origin site's `sitemap.xml` published for crawlers; use change records
+  (not sitemap diffs) for deleted URLs. Queued URLs, receipts, and the SQLite
+  database remain compatible. Deployment order for auto-updating
+  environments: migrate callers first, then roll out this version. — Thanks @imjlk!
+
+### Patch changes
+
+- [b0af27f](https://github.com/imjlk/indexnow-relay/commit/b0af27f89745545985caba68d75e9158b3122b79) Reject invalid batch-size configuration before starting the relay.
+  
+  Prevent late responses from leases that no longer own queued URLs from
+  updating per-URL delivery timestamps.
+  
+  Retain newly exhausted dead letters from their failure transition time,
+  rather than their original submission time. — Thanks @imjlk!
+
 ## 0.5.0 — 2026-09-16
 
 ### Fixed
