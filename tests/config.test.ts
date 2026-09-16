@@ -102,6 +102,21 @@ describe('normalizeRelayConfig', () => {
     expect(config.auth.tokens[0]!.sites).toBe('*')
   })
 
+  test('retry defaults give a patient, bounded budget', () => {
+    const { queue } = normalizeRelayConfig(baseConfig())
+    expect(queue.maxAttempts).toBe(10)
+    expect(queue.backoffBaseMs).toBe(30_000)
+    expect(queue.backoffMaxMs).toBe(900_000)
+  })
+
+  test('a ceiling-only queue override keeps a usable base', () => {
+    // raising the default base must not turn an existing ceiling-only
+    // config into a startup error
+    const { queue } = normalizeRelayConfig(baseConfig({ queue: { backoffMaxMs: 10_000 } }))
+    expect(queue.backoffBaseMs).toBe(10_000)
+    expect(queue.backoffMaxMs).toBe(10_000)
+  })
+
   test('rejects an invalid IndexNow key', () => {
     expect(() => normalizeRelayConfig(baseConfig({ sites: { 'www.example.com': 'not-hex' } }))).toThrow(ConfigError)
   })

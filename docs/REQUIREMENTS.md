@@ -106,12 +106,21 @@ leaked database file leaks URLs and metadata only.
 
 ## Retries and dead letters
 
-Retryable failures back off exponentially with jitter
-(`queue.backoffBaseMs` doubling up to `queue.backoffMaxMs`). After
-`queue.maxAttempts` attempts a URL becomes a dead letter with its last
-error; permanent `4xx` failures dead-letter immediately. Dead letters are
-listed via the operations API and can be requeued individually, per site, or
-all at once. Dead letters older than `queue.retentionDays` are purged.
+Retryable failures (`429`, any `5xx`, network errors) back off exponentially
+with jitter (`queue.backoffBaseMs` doubling up to `queue.backoffMaxMs`). When
+the answer carries a parseable `Retry-After` (integer seconds or an HTTP
+date), the retry waits until the later of the relay's own backoff and the
+server's requested time; `backoffMaxMs` never shortens a server-requested
+wait. A retryable failure also cools down the whole site — not just the
+failed URLs — until the retry time, persisted across restarts; pauses and
+cooldowns are re-checked before every batch claim, and `resume` clears a
+manual pause but never a cooldown. After `queue.maxAttempts` total attempts
+(including the first send) a URL becomes a dead letter with its last error;
+permanent `4xx` failures dead-letter immediately. A retryable batch in which
+every URL exhausted its budget is recorded dead, not as a scheduled retry.
+Dead letters are listed via the operations API and can be requeued
+individually, per site, or all at once. Dead letters older than
+`queue.retentionDays` are purged.
 
 ## Authentication and authorization
 

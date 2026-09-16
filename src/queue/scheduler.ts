@@ -84,6 +84,9 @@ export class Scheduler {
         if (this.#running.size >= this.#deps.config.queue.maxConcurrentSites) break
         if (this.#running.has(site.host)) continue
         if (this.#deps.siteState.isPaused(site.host)) continue
+        // A persisted cooldown (Retry-After / retryable failure) must not be
+        // bypassed by a wake-up from a new submission or a fresh process.
+        if (this.#deps.siteState.retryNotBefore(site.host) > now) continue
         if (!this.#deps.pendingUrls.hasDueWork(site.host, now)) continue
         void this.#launchDrain(site)
       }
@@ -100,6 +103,7 @@ export class Scheduler {
       pendingUrls: this.#deps.pendingUrls,
       submissionState: this.#deps.submissionState,
       batches: this.#deps.batches,
+      siteState: this.#deps.siteState,
       queue: this.#deps.config.queue,
       client: this.#deps.client,
       logger: this.#deps.logger,

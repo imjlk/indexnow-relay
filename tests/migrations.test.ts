@@ -58,7 +58,7 @@ describe('migrations', () => {
     expect(dead.not_before_at).toBe(0)
 
     const versions = db.query('SELECT version FROM schema_migrations ORDER BY version').all() as Array<{ version: number }>
-    expect(versions.map((v) => v.version)).toEqual([1, 2])
+    expect(versions.map((v) => v.version)).toEqual([1, 2, 3])
     db.close()
   })
 
@@ -68,8 +68,8 @@ describe('migrations', () => {
     const rowsBefore = db.query('SELECT COUNT(*) AS n FROM schema_migrations').get() as { n: number }
     migrate(db)
     const rowsAfter = db.query('SELECT COUNT(*) AS n FROM schema_migrations').get() as { n: number }
-    expect(rowsBefore.n).toBe(2)
-    expect(rowsAfter.n).toBe(2)
+    expect(rowsBefore.n).toBe(3)
+    expect(rowsAfter.n).toBe(3)
     db.close()
   })
 
@@ -79,6 +79,8 @@ describe('migrations', () => {
     const columns = db.query('PRAGMA table_info(pending_urls)').all() as Array<{ name: string }>
     expect(columns.map((c) => c.name)).toContain('revision')
     expect(columns.map((c) => c.name)).toContain('not_before_at')
+    const siteColumns = db.query('PRAGMA table_info(site_state)').all() as Array<{ name: string }>
+    expect(siteColumns.map((c) => c.name)).toContain('retry_not_before_at')
     db.close()
   })
 })

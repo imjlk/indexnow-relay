@@ -22,6 +22,10 @@ export interface TestAppOptions {
   webhookFetch?: FetchLike
   webhookUrl?: string
   queue?: Partial<QueueConfigInput>
+  /** Reuse an existing database file (restart/cooldown-persistence tests). */
+  databasePath?: string
+  /** Override the default two-site fixture. */
+  sites?: Record<string, import('../../src/config/index.ts').SiteConfigInput>
 }
 
 /**
@@ -39,11 +43,11 @@ export function createTestApp(options: TestAppOptions = {}): RelayApp {
         blog: { value: BLOG_TOKEN, sites: [BLOG_HOST] },
       },
     },
-    sites: {
+    sites: options.sites ?? {
       [WWW_HOST]: WWW_KEY,
       [BLOG_HOST]: { key: BLOG_KEY, keyPath: '/.well-known/{key}.txt', batchSize: 2 },
     },
-    database: { path: join(dir, 'relay.db') },
+    database: { path: options.databasePath ?? join(dir, 'relay.db') },
     ...(options.webhookUrl === undefined ? {} : { notifications: { webhookUrl: options.webhookUrl } }),
     queue: {
       pollIntervalMs: 20,
