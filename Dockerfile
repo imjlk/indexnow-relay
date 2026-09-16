@@ -62,6 +62,6 @@ VOLUME ["/data"]
 # Distroless has no shell; the check runs Bun directly. It assumes the
 # default port 3000 - compose files that change PORT override this check.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD ["bun", "-e", "await fetch('http://127.0.0.1:3000/healthz').then((r) => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"]
+  CMD ["bun", "-e", "await fetch(`http://127.0.0.1:${process.env.PORT ?? '3000'}/healthz`).then((r) => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"]
 
 ENTRYPOINT ["bun", "dist/server.js"]
