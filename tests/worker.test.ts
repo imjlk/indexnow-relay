@@ -117,6 +117,21 @@ function track(a: RelayApp): RelayApp {
 const status = (code: number): Response => new Response('', { status: code })
 
 describe('queue worker end to end', () => {
+  test('a successful delivery without further submissions triggers no extra request', async () => {
+    const { fetch, calls } = recordingFetch(() => status(200))
+    const a = track(createTestApp({ fetchImpl: fetch }))
+    a.scheduler.start()
+
+    a.enqueue.submit(findToken(a.config.auth.tokens, ADMIN_TOKEN)!, ['https://www.example.com/a'], undefined)
+    await waitFor(() => a.pendingUrls.queueDepths().length === 0, 3000, 'queue to drain')
+
+    // deferred redelivery exists only when a resubmission arrives; success
+    // alone must never produce a second IndexNow request
+    await Bun.sleep(150)
+    expect(calls).toHaveLength(1)
+    expect(a.pendingUrls.queueDepths()).toEqual([])
+  })
+
   test('a submission alone does not deliver before scheduler.start()', async () => {
     // No fetchImpl injected: if the scheduler drained before start(), this
     // would hit the real IndexNow endpoint.
@@ -313,7 +328,8 @@ describe('in-flight resubmission preservation', () => {
     expect(a.submissionState.getSentAt(WWW_HOST, ['https://www.example.com/a']).size).toBe(1)
     expect(a.batches.list(undefined, 10)[0]!.status).toBe('succeeded')
 
-    // ...and the follow-up change is still queued with a fresh cycle
+    // ...and the follow-up change is still queued with a fresh cycle whose
+    // delivery floor is the just-finished success + the resubmit interval
     const row = a.pendingUrls.get(WWW_HOST, 'https://www.example.com/a')!
     expect(row.status).toBe('pending')
     expect(row.lease_id).toBeNull()
@@ -322,7 +338,8 @@ describe('in-flight resubmission preservation', () => {
     expect(row.last_error).toBeNull()
     expect(row.event_type).toBe('updated')
     expect(row.first_seen_at).toBe(row.last_seen_at)
-    expect(row.due_at).toBeLessThanOrEqual(Date.now())
+    expect(row.not_before_at).toBeGreaterThan(Date.now())
+    expect(row.due_at).toBe(row.not_before_at)
   })
 
   test('repeated mid-flight resubmissions leave exactly one follow-up row', async () => {
@@ -381,7 +398,13 @@ describe('in-flight resubmission preservation', () => {
 
   test('a resubmission during follow-up delivery is preserved, not suppressed', async () => {
     const stepped = steppedFetch()
-    const a = track(createTestApp({ fetchImpl: stepped.fetch }))
+    const a = track(createTestApp({
+      fetchImpl: stepped.fetch,
+      sites: {
+        [WWW_HOST]: { key: WWW_KEY, minResubmitIntervalMs: 0 },
+        [BLOG_HOST]: { key: BLOG_KEY, keyPath: '/.well-known/{key}.txt', batchSize: 2 },
+      },
+    }))
     const token = findToken(a.config.auth.tokens, ADMIN_TOKEN)!
     let stop = false
     const url = 'https://www.example.com/a'
@@ -422,14 +445,14 @@ describe('in-flight resubmission preservation', () => {
     // the stale worker's delete
     a.db.prepare("UPDATE pending_urls SET lease_id = 'lease-2' WHERE url = ?").run(url)
     expect(a.pendingUrls.deleteLeased(WWW_HOST, 'lease-1', [staleClaim])).toBe(0)
-    expect(a.pendingUrls.releaseFollowUps(WWW_HOST, 'lease-1', [staleClaim], 0)).toEqual([])
+    expect(a.pendingUrls.releaseFollowUps(WWW_HOST, 'lease-1', [staleClaim], 0, 0)).toEqual([])
 
     // resubmitted row re-leased elsewhere: the revision guard holds too
     a.db
       .prepare("UPDATE pending_urls SET lease_id = 'lease-2', revision = 2 WHERE url = ?")
       .run(url)
     expect(a.pendingUrls.deleteLeased(WWW_HOST, 'lease-1', [staleClaim])).toBe(0)
-    expect(a.pendingUrls.releaseFollowUps(WWW_HOST, 'lease-1', [staleClaim], 0)).toEqual([])
+    expect(a.pendingUrls.releaseFollowUps(WWW_HOST, 'lease-1', [staleClaim], 0, 0)).toEqual([])
 
     const row = a.pendingUrls.get(WWW_HOST, url)!
     expect(row.lease_id).toBe('lease-2')

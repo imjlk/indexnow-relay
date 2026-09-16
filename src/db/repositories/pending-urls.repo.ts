@@ -50,7 +50,10 @@ export class PendingUrlsRepository {
       .get(siteHost, url)
   }
 
-  /** Inserts a brand-new pending URL. Returns false if one already exists. */
+  /**
+   * Inserts a brand-new pending URL due after `batchWindowMs`. Returns false
+   * if one already exists.
+   */
   insertNew(
     siteHost: string,
     url: string,
@@ -67,6 +70,32 @@ export class PendingUrlsRepository {
          ON CONFLICT (site_host, url) DO NOTHING`,
       )
       .run(siteHost, url, eventType ?? null, now, now, dueAt, receiptId)
+    return result.changes > 0
+  }
+
+  /**
+   * Reserves one more delivery for a recently-sent URL: a pending row that
+   * cannot go out before `notBeforeAt` (last success + the site's minimum
+   * resubmit interval). Unlike dropping the resubmission, the change is
+   * guaranteed to reach IndexNow once the interval passes.
+   */
+  scheduleDeferred(
+    siteHost: string,
+    url: string,
+    eventType: string | undefined,
+    now: number,
+    notBeforeAt: number,
+    batchWindowMs: number,
+    receiptId: string,
+  ): boolean {
+    const result = this.#db
+      .query(
+        `INSERT INTO pending_urls
+           (site_host, url, event_type, first_seen_at, last_seen_at, due_at, not_before_at, attempts, last_receipt_id, status)
+         VALUES (?, ?, ?, ?, ?, MAX(?, ?), ?, 0, ?, 'pending')
+         ON CONFLICT (site_host, url) DO NOTHING`,
+      )
+      .run(siteHost, url, eventType ?? null, now, now, notBeforeAt, now + batchWindowMs, notBeforeAt, receiptId)
     return result.changes > 0
   }
 
@@ -97,7 +126,11 @@ export class PendingUrlsRepository {
       .run(now, receiptId, eventType ?? null, now, batchWindowMs, maxCoalesceDelayMs, siteHost, url)
   }
 
-  /** A dead URL was resubmitted: revive it as pending with fresh attempts. */
+  /**
+   * A dead URL was resubmitted: revive it as pending with fresh attempts.
+   * `notBeforeAt` (last success + the site's resubmit interval, when a recent
+   * success exists) becomes the revived row's delivery floor.
+   */
   reviveDead(
     siteHost: string,
     url: string,
@@ -105,18 +138,20 @@ export class PendingUrlsRepository {
     dueAt: number,
     receiptId: string,
     eventType: string | undefined,
+    notBeforeAt: number,
   ): void {
     this.#db
       .query(
         `UPDATE pending_urls
          SET status = 'pending', attempts = 0, last_error = NULL,
-             first_seen_at = ?, last_seen_at = ?, due_at = ?, last_receipt_id = ?,
+             first_seen_at = ?, last_seen_at = ?,
+             due_at = MAX(?, ?), not_before_at = ?, last_receipt_id = ?,
              event_type = COALESCE(?, event_type),
-             revision = 1, not_before_at = 0,
+             revision = 1,
              lease_id = NULL, lease_until = NULL
          WHERE site_host = ? AND url = ? AND status = 'dead'`,
       )
-      .run(now, now, dueAt, receiptId, eventType ?? null, siteHost, url)
+      .run(now, now, dueAt, notBeforeAt, notBeforeAt, receiptId, eventType ?? null, siteHost, url)
   }
 
   hasDueWork(siteHost: string, now: number): boolean {
@@ -197,25 +232,40 @@ export class PendingUrlsRepository {
    * passed the claim-time snapshot). The successful send is behind us, so the
    * follow-up change starts a fresh delivery cycle: attempts and last error
    * reset, and the cycle is anchored to the follow-up's receipt time so
-   * `first_seen_at <= last_seen_at` keeps holding. Returns the follow-up URLs.
+   * `first_seen_at <= last_seen_at` keeps holding. `deliveryFloorMs` is the
+   * just-finished success plus the site's resubmit interval, so the follow-up
+   * delivers no earlier than policy allows. Returns the follow-up URLs.
    */
   releaseFollowUps(
     siteHost: string,
     leaseId: string,
     claimed: readonly ClaimedUrl[],
     batchWindowMs: number,
+    deliveryFloorMs: number,
   ): string[] {
     const statement = this.#db.query(
       `UPDATE pending_urls
        SET lease_id = NULL, lease_until = NULL, attempts = 0, last_error = NULL,
            first_seen_at = last_seen_at,
-           due_at = MAX(not_before_at, last_seen_at + ?)
+           not_before_at = MAX(not_before_at, ?),
+           due_at = MAX(?, ?, last_seen_at + ?)
        WHERE site_host = ? AND lease_id = ? AND url = ? AND revision > ?`,
     )
     return this.#db.transaction(() => {
       const followUps: string[] = []
       for (const row of claimed) {
-        if (statement.run(batchWindowMs, siteHost, leaseId, row.url, row.revision).changes > 0) {
+        if (
+          statement.run(
+            deliveryFloorMs,
+            deliveryFloorMs,
+            deliveryFloorMs,
+            batchWindowMs,
+            siteHost,
+            leaseId,
+            row.url,
+            row.revision,
+          ).changes > 0
+        ) {
           followUps.push(row.url)
         }
       }
