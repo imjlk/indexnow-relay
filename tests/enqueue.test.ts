@@ -282,6 +282,65 @@ describe('EnqueueService.submit', () => {
     expect(row.event_type).toBe('updated')
   })
 
+  test('enforces the key-file directory scope on path-segment boundaries', () => {
+    const created = createTestApp({
+      sites: {
+        [WWW_HOST]: { key: WWW_KEY, keyPath: '/catalog/{key}.txt' },
+        [BLOG_HOST]: { key: BLOG_KEY, batchSize: 2 },
+      },
+    })
+    apps.push(created)
+    const token = findToken(created.config.auth.tokens, ADMIN_TOKEN)!
+
+    const ok = created.enqueue.submit(
+      token,
+      ['https://www.example.com/catalog/item/1', 'https://www.example.com/catalog/', 'https://www.example.com/catalog'],
+      undefined,
+    )
+    expect(ok.enqueued).toBe(3)
+
+    for (const [label, url] of [
+      ['sibling prefix', 'https://www.example.com/catalogue/1'],
+      ['outside the scope', 'https://www.example.com/help/1'],
+    ] as const) {
+      const error = capture(() => created.enqueue.submit(token, [url], undefined))
+      expect(errorCode(error)).toBe('INVALID_URL')
+      const detail = ((error as { data?: { urls?: Array<{ url: string; reason: string }> } }).data?.urls) ?? []
+      expect(detail).toHaveLength(1)
+      expect(detail[0]!.url).toBe(url)
+      expect(detail[0]!.reason).toContain('scope')
+      void label
+    }
+
+    // the whole-site default stays unrestricted
+    const blog = created.enqueue.submit(token, ['https://blog.example.com/anywhere/x'], undefined)
+    expect(blog.enqueued).toBe(1)
+  })
+
+  test('an out-of-scope URL rejects the whole request all-or-nothing', () => {
+    const created = createTestApp({
+      sites: {
+        [WWW_HOST]: { key: WWW_KEY, keyPath: '/catalog/{key}.txt' },
+        [BLOG_HOST]: { key: BLOG_KEY, batchSize: 2 },
+      },
+    })
+    apps.push(created)
+    const token = findToken(created.config.auth.tokens, ADMIN_TOKEN)!
+
+    const error = capture(() =>
+      created.enqueue.submit(
+        token,
+        ['https://www.example.com/catalog/item/1', 'https://www.example.com/help/1'],
+        undefined,
+      ),
+    )
+    expect(errorCode(error)).toBe('INVALID_URL')
+    // nothing was enqueued on either host and no receipt was written
+    expect(created.pendingUrls.queueDepths()).toEqual([])
+    const receipts = created.db.query('SELECT COUNT(*) AS n FROM receipts').get() as { n: number }
+    expect(receipts.n).toBe(0)
+  })
+
   test('rejects invalid URLs without writing anything (all-or-nothing)', () => {
     const a = app()
     const invalid = capture(() => a.enqueue.submit(adminTokenOf(a), ['https://www.example.com/a', 'ftp://nope/'], undefined))

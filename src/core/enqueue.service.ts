@@ -69,11 +69,34 @@ export class EnqueueService {
         }
       }
     }
+
+    // 2. Every host must be a configured site before scope checks can run.
+    const hosts = [...new Set(normalized.map((item) => item.host))]
+    const unknownHosts = hosts.filter((host) => this.#deps.registry.get(host) === undefined)
+    if (unknownHosts.length > 0) {
+      throw domainError('UNKNOWN_SITE', 'One or more URLs belong to hosts that are not configured.', {
+        hosts: unknownHosts,
+      })
+    }
+
+    // 3. A key file below a subdirectory only authorizes URLs under it
+    // (IndexNow key-location scope), checked on path-segment boundaries.
+    for (const item of normalized) {
+      const scope = this.#deps.registry.get(item.host)!.keyScopeDir
+      const inScope =
+        scope === '' || item.path === scope || item.path.startsWith(`${scope}/`)
+      if (!inScope && invalid.length < 10) {
+        invalid.push({
+          url: item.url,
+          reason: `outside the key file's path scope for this site (key file lives under "${scope}")`,
+        })
+      }
+    }
     if (invalid.length > 0) {
       throw domainError('INVALID_URL', 'One or more URLs are invalid.', { urls: invalid })
     }
 
-    // 2. Group unique URLs by host; duplicates within the request coalesce.
+    // 4. Group unique URLs by host; duplicates within the request coalesce.
     const groups = new Map<string, Map<string, number>>()
     for (const item of normalized) {
       let urls = groups.get(item.host)
@@ -87,15 +110,7 @@ export class EnqueueService {
     const duplicatesOf = (urls: Map<string, number>): number =>
       [...urls.values()].reduce((sum, count) => sum + (count - 1), 0)
 
-    // 3. Every host must be a configured site.
-    const unknownHosts = [...groups.keys()].filter((host) => this.#deps.registry.get(host) === undefined)
-    if (unknownHosts.length > 0) {
-      throw domainError('UNKNOWN_SITE', 'One or more URLs belong to hosts that are not configured.', {
-        hosts: unknownHosts,
-      })
-    }
-
-    // 4. The token must be allowed to touch every host.
+    // 5. The token must be allowed to touch every host.
     const forbiddenHosts = [...groups.keys()].filter((host) => !tokenAllowsSite(token, host))
     if (forbiddenHosts.length > 0) {
       throw domainError(
@@ -105,7 +120,7 @@ export class EnqueueService {
       )
     }
 
-    // 5. Atomic enqueue.
+    // 6. Atomic enqueue.
     const now = Date.now()
     const receiptId = createUlid(now)
     const { queue } = this.#deps.config

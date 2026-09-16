@@ -11,12 +11,20 @@ answers for them.
 Sites are configured in `relay.config.ts`, keyed by bare hostname — the
 hostname is the canonical site identity everywhere (config, API, database);
 no separate target ids exist. The common case is one line per site mapping
-the hostname to an IndexNow key environment reference; an advanced object
-form overrides the key file path (`keyPath`, default `/{key}.txt`, must
-contain `{key}`), batch size, minimum resubmit interval, and enabled flag.
+the hostname to an IndexNow key environment reference. Keys are 8-128
+characters of letters, digits, or hyphens, validated and preserved verbatim -
+never lowercased or trimmed, since the key file must match byte for byte. An
+advanced object form overrides the key file path (`keyPath`, default
+`/{key}.txt`, must contain `{key}` exactly once; query strings, fragments,
+backslashes, control characters, and `..` segments are rejected), batch size,
+minimum resubmit interval, and enabled flag. A key file below a subdirectory
+limits the site to submitting URLs under that directory, compared on path
+segment boundaries.
 The full key location URL is derived, never repeated by the operator. Auth is
 one bearer token by default, or a map of scoped tokens where each token names
-the hosts it may touch; `sites: '*'` is unrestricted. Secrets come only from
+the hosts it may touch (stored normalized and de-duplicated, so case or
+trailing-dot variations cannot slip past the runtime check);
+`sites: '*'` is unrestricted. Secrets come only from
 environment references or dev-convenience literals, are resolved at load
 time, and the normalized configuration is validated again at runtime.
 
@@ -36,9 +44,11 @@ startup logs list hostnames only.
 number of configured hosts in one request, plus an optional `event`
 (`created`/`updated`/`deleted`) used for operational context only. URLs are
 normalized: fragments stripped, default ports removed, empty paths become
-`/`, hosts lowercased. Validation is all-or-nothing — if any URL is invalid
-(`INVALID_URL` 400), any host is unconfigured (`UNKNOWN_SITE` 400), or the
-token lacks access to any host (`FORBIDDEN_SITE` 403), nothing is enqueued.
+`/`, hosts lowercased. A URL outside its site's key-file directory scope is
+an `INVALID_URL` like any other invalid URL. Validation is all-or-nothing —
+if any URL is invalid (`INVALID_URL` 400), any host is unconfigured
+(`UNKNOWN_SITE` 400), or the token lacks access to any host
+(`FORBIDDEN_SITE` 403), nothing is enqueued.
 Accepted submissions return a receipt with per-host `enqueued` and
 `coalesced` counts, and all writes land in a single SQLite transaction.
 Duplicates within one request and resubmissions while a URL is still pending

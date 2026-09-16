@@ -25,6 +25,8 @@ export interface NormalizedSubmitUrl {
   url: string
   /** Lowercased hostname (no port). */
   host: string
+  /** Normalized path (always starts with "/"), for key-file scope checks. */
+  path: string
 }
 
 export function normalizeSubmitUrl(raw: string): NormalizedSubmitUrl {
@@ -64,7 +66,7 @@ export function normalizeSubmitUrl(raw: string): NormalizedSubmitUrl {
     parsed.pathname = '/'
   }
 
-  return { url: parsed.toString(), host }
+  return { url: parsed.toString(), host, path: parsed.pathname }
 }
 
 export interface UrlGroup {

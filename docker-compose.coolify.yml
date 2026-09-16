@@ -3,7 +3,7 @@
 # The only value you must provide is INDEXNOW_SITES (set it in Coolify's
 # Environment Variables as a Secret):
 #
-#   INDEXNOW_SITES={"www.example.com":"<indexnow-key>","docs.example.com":{"key":"<key>","keyPath":"/.well-known/{key}.txt"}}
+#   INDEXNOW_SITES={"www.example.com":"<indexnow-key>","docs.example.com":{"key":"<key>","keyPath":"/{key}.txt"}}
 #
 # Coolify generates and persists SERVICE_PASSWORD_64_RELAY (used as the API
 # bearer token) and derives the public URL from SERVICE_URL_RELAY_8080, so

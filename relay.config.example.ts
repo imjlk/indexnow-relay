@@ -22,7 +22,9 @@ export default defineConfig({
     // Advanced: custom key file path, batch size, and resubmit interval.
     'docs.example.com': {
       key: env('INDEXNOW_KEY_DOCS_EXAMPLE_COM'),
-      keyPath: '/.well-known/{key}.txt',
+      // Default '/{key}.txt' covers the whole site. A key file below a
+      // subdirectory restricts submissions to URLs under that directory.
+      // keyPath: '/catalog/{key}.txt',
       batchSize: 500,
       minResubmitIntervalMs: 600_000,
     },

@@ -117,6 +117,26 @@ function track(a: RelayApp): RelayApp {
 const status = (code: number): Response => new Response('', { status: code })
 
 describe('queue worker end to end', () => {
+  test('delivers the configured key verbatim, preserving case and hyphens', async () => {
+    const mixedCaseKey = 'My-Key-7f3A-000000000001'
+    const { fetch, calls } = recordingFetch(() => status(200))
+    const a = track(createTestApp({
+      fetchImpl: fetch,
+      sites: {
+        [WWW_HOST]: mixedCaseKey,
+        [BLOG_HOST]: { key: BLOG_KEY, batchSize: 2 },
+      },
+    }))
+    a.scheduler.start()
+
+    a.enqueue.submit(findToken(a.config.auth.tokens, ADMIN_TOKEN)!, ['https://www.example.com/a'], undefined)
+    await waitFor(() => a.pendingUrls.queueDepths().length === 0, 3000, 'queue to drain')
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.body.key).toBe(mixedCaseKey)
+    expect(calls[0]!.body.keyLocation).toBe(`https://${WWW_HOST}/${mixedCaseKey}.txt`)
+  })
+
   test('a successful delivery without further submissions triggers no extra request', async () => {
     const { fetch, calls } = recordingFetch(() => status(200))
     const a = track(createTestApp({ fetchImpl: fetch }))
@@ -185,7 +205,7 @@ describe('queue worker end to end', () => {
     expect(calls).toHaveLength(2)
     expect(calls[0]!.body.urlList).toHaveLength(2)
     expect(calls[1]!.body.urlList).toHaveLength(1)
-    expect(calls[0]!.body.keyLocation).toBe(`https://${BLOG_HOST}/.well-known/${BLOG_KEY}.txt`)
+    expect(calls[0]!.body.keyLocation).toBe(`https://${BLOG_HOST}/${BLOG_KEY}.txt`)
   })
 
   test('retries on 429 and succeeds on the next attempt', async () => {
@@ -404,7 +424,7 @@ describe('in-flight resubmission preservation', () => {
       fetchImpl: stepped.fetch,
       sites: {
         [WWW_HOST]: { key: WWW_KEY, minResubmitIntervalMs: 0 },
-        [BLOG_HOST]: { key: BLOG_KEY, keyPath: '/.well-known/{key}.txt', batchSize: 2 },
+        [BLOG_HOST]: { key: BLOG_KEY, batchSize: 2 },
       },
     }))
     const token = findToken(a.config.auth.tokens, ADMIN_TOKEN)!
@@ -573,7 +593,7 @@ describe('Retry-After and per-site cooldowns', () => {
   test('other due URLs of a cooling site wait too; other sites proceed', async () => {
     const { a, calls } = coolDownApp(() => new Response('', { status: 429, headers: { 'retry-after': '60' } }), {
       [WWW_HOST]: { key: WWW_KEY, batchSize: 1 },
-      [BLOG_HOST]: { key: BLOG_KEY, keyPath: '/.well-known/{key}.txt', batchSize: 2 },
+      [BLOG_HOST]: { key: BLOG_KEY, batchSize: 2 },
     })
     a.scheduler.start()
 
@@ -644,7 +664,7 @@ describe('Retry-After and per-site cooldowns', () => {
     const stepped = steppedFetch()
     const a = track(createTestApp({
       fetchImpl: stepped.fetch,
-      sites: { [WWW_HOST]: { key: WWW_KEY, batchSize: 1 }, [BLOG_HOST]: { key: BLOG_KEY, keyPath: '/.well-known/{key}.txt', batchSize: 2 } },
+      sites: { [WWW_HOST]: { key: WWW_KEY, batchSize: 1 }, [BLOG_HOST]: { key: BLOG_KEY, batchSize: 2 } },
     }))
     a.scheduler.start()
 
@@ -707,7 +727,7 @@ describe('Retry-After and per-site cooldowns', () => {
 
   test('a mixed batch records the retry and dead-letters only the exhausted URL', async () => {
     const { a, calls } = coolDownApp(() => new Response('', { status: 500 }), {
-      [WWW_HOST]: { key: WWW_KEY, batchSize: 2 }, [BLOG_HOST]: { key: BLOG_KEY, keyPath: '/.well-known/{key}.txt', batchSize: 2 },
+      [WWW_HOST]: { key: WWW_KEY, batchSize: 2 }, [BLOG_HOST]: { key: BLOG_KEY, batchSize: 2 },
     })
 
     const token = findToken(a.config.auth.tokens, ADMIN_TOKEN)!
