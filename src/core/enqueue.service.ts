@@ -123,10 +123,9 @@ export class EnqueueService {
           const existing = this.#deps.pendingUrls.get(host, url)
 
           // An existing pending row (leased or not) always absorbs the
-          // resubmission. Suppressing on recent success here could drop a
-          // change that arrives while the row's own follow-up delivery is
-          // in flight: the follow-up would succeed at its old revision and
-          // delete the row, losing the newer change.
+          // resubmission. Its delivery floor (retry wait or an earlier
+          // deferred reservation) is untouched, so repeated resubmissions
+          // never postpone or bypass the scheduled delivery.
           if (existing !== null && existing.status === 'pending') {
             this.#deps.pendingUrls.coalesceTouch(
               host,
@@ -141,16 +140,42 @@ export class EnqueueService {
             continue
           }
 
+          const lastSent = sentAt.get(url)
+          const deliveryFloor = lastSent !== undefined ? lastSent + site.minResubmitIntervalMs : 0
+
           if (existing !== null) {
-            // dead -> operator resubmitted it; give it a fresh attempt budget
-            this.#deps.pendingUrls.reviveDead(host, url, now, now + queue.batchWindowMs, receiptId, event)
+            // dead -> operator resubmitted it; give it a fresh attempt
+            // budget, still respecting the resubmit interval
+            this.#deps.pendingUrls.reviveDead(
+              host,
+              url,
+              now,
+              now + queue.batchWindowMs,
+              receiptId,
+              event,
+              deliveryFloor,
+            )
             enqueued += 1
             continue
           }
 
-          const lastSent = sentAt.get(url)
-          if (lastSent !== undefined && now - lastSent < site.minResubmitIntervalMs) {
-            coalesced += 1
+          if (deliveryFloor > now) {
+            // Recently sent and no queue row: instead of dropping the
+            // change, reserve one more delivery once the interval passes.
+            const scheduled = this.#deps.pendingUrls.scheduleDeferred(
+              host,
+              url,
+              event,
+              now,
+              deliveryFloor,
+              queue.batchWindowMs,
+              receiptId,
+            )
+            if (scheduled) {
+              enqueued += 1
+            } else {
+              coalesced += 1
+            }
             continue
           }
 

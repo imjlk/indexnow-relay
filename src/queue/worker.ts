@@ -105,6 +105,7 @@ export async function drainSite(
           leaseId,
           claimed,
           deps.queue.batchWindowMs,
+          finishedAt + site.minResubmitIntervalMs,
         )
         deps.submissionState.recordSent(site.host, claimed.map((row) => row.url), finishedAt)
         deps.batches.markSucceeded(batchId, outcome.httpStatus, finishedAt)

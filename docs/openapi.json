@@ -1,7 +1,7 @@
 {
   "info": {
     "title": "IndexNow Relay API",
-    "version": "0.2.2",
+    "version": "0.4.0",
     "description": "Submit URLs once and let the relay batch, coalesce, retry, and deliver them to IndexNow per site. Authenticate with `Authorization: Bearer <token>`."
   },
   "openapi": "3.1.2",
@@ -82,10 +82,12 @@
             "type": "string"
           },
           "enqueued": {
-            "type": "number"
+            "type": "number",
+            "description": "URLs that got a fresh queue row this request: new, revived, or reserved for a deferred redelivery."
           },
           "coalesced": {
-            "type": "number"
+            "type": "number",
+            "description": "URLs merged into an already-queued row (including duplicates within this request)."
           }
         },
         "required": [

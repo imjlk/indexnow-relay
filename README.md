@@ -189,7 +189,7 @@ sites: {
     key: env('INDEXNOW_KEY_DOCS_EXAMPLE_COM'),
     keyPath: '/.well-known/{key}.txt', // default: '/{key}.txt'
     batchSize: 500,                    // URLs per IndexNow request (max 10,000)
-    minResubmitIntervalMs: 600_000,    // suppress duplicate resubmissions
+    minResubmitIntervalMs: 600_000,    // redeliver changes that arrive sooner than this, after it passes
     enabled: true,                     // false = config present but inactive
   },
 }
@@ -220,7 +220,7 @@ Delivery is fire-and-forget with bounded retries and never blocks the queue.
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `batchWindowMs` | `5_000` | How long a URL waits for more URLs before its site batch is sent |
-| `maxCoalesceDelayMs` | `30_000` | Hard cap on how long a URL can be coalesced after first sight |
+| `maxCoalesceDelayMs` | `30_000` | Cap on batch-window coalescing after a URL's first sight; retry waits, resubmit intervals, pauses, and site cooldowns are not bounded by it |
 | `maxBatchSize` | `1_000` | Default URLs per IndexNow request |
 | `maxConcurrentSites` | `4` | Sites drained in parallel |
 | `pollIntervalMs` | `250` | Scheduler tick |
