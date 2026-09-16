@@ -45,9 +45,10 @@ Duplicates within one request and resubmissions while a URL is still pending
 coalesce instead of enqueueing again. A resubmission inside the site's
 resubmit interval after a successful send is not dropped: the relay reserves
 exactly one deferred redelivery whose delivery floor is the last success plus
-the interval, delivered once it passes; repeated resubmissions merge into
-that reservation without postponing it, and no redelivery ever happens
-without a new submission. Dead-row revival applies the same floor when a
+the interval; the reservation stays queued and becomes eligible for delivery
+once the floor passes (still subject to retries, pauses, and site cooldowns).
+Repeated resubmissions merge into that reservation without postponing it, and
+no redelivery ever happens without a new submission. Dead-row revival applies the same floor when a
 recent success exists. Each pending URL carries a `revision` bumped by every
 external resubmission, so a change that lands while an earlier change for
 the same URL is in flight is preserved: the earlier delivery completes, and

@@ -234,7 +234,10 @@ export class PendingUrlsRepository {
    * reset, and the cycle is anchored to the follow-up's receipt time so
    * `first_seen_at <= last_seen_at` keeps holding. `deliveryFloorMs` is the
    * just-finished success plus the site's resubmit interval, so the follow-up
-   * delivers no earlier than policy allows. Returns the follow-up URLs.
+   * delivers no earlier than policy allows. Both SET expressions read the
+   * pre-update `not_before_at` (SQLite evaluates them against the original
+   * row), so an already-higher floor keeps bounding due_at. Returns the
+   * follow-up URLs.
    */
   releaseFollowUps(
     siteHost: string,
@@ -248,7 +251,7 @@ export class PendingUrlsRepository {
        SET lease_id = NULL, lease_until = NULL, attempts = 0, last_error = NULL,
            first_seen_at = last_seen_at,
            not_before_at = MAX(not_before_at, ?),
-           due_at = MAX(?, ?, last_seen_at + ?)
+           due_at = MAX(not_before_at, ?, last_seen_at + ?)
        WHERE site_host = ? AND lease_id = ? AND url = ? AND revision > ?`,
     )
     return this.#db.transaction(() => {
@@ -256,7 +259,6 @@ export class PendingUrlsRepository {
       for (const row of claimed) {
         if (
           statement.run(
-            deliveryFloorMs,
             deliveryFloorMs,
             deliveryFloorMs,
             batchWindowMs,

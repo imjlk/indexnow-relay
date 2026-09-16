@@ -458,6 +458,24 @@ describe('in-flight resubmission preservation', () => {
     expect(row.lease_id).toBe('lease-2')
     expect(row.revision).toBe(2)
     expect(row.attempts).toBe(0)
+
+    // a pre-existing floor higher than the success floor keeps bounding
+    // due_at even if the clock moved backwards during delivery
+    const floorAt = Date.now() + 3_600_000
+    a.db
+      .prepare("UPDATE pending_urls SET lease_id = 'lease-3', revision = 5, not_before_at = ?, due_at = ? WHERE url = ?")
+      .run(floorAt, floorAt, url)
+    const kept = a.pendingUrls.releaseFollowUps(
+      WWW_HOST,
+      'lease-3',
+      [{ url, event_type: null, attempts: 0, revision: 4 }],
+      0,
+      0,
+    )
+    expect(kept).toEqual([url])
+    const floored = a.pendingUrls.get(WWW_HOST, url)!
+    expect(floored.not_before_at).toBe(floorAt)
+    expect(floored.due_at).toBe(floorAt)
   })
 })
 
