@@ -258,7 +258,6 @@ the OpenAPI document (`/openapi.json`, interactive docs at `/`).
 | Method | Path | Purpose |
 | --- | --- | --- |
 | POST | `/v1/urls` | Submit URLs across any number of configured sites |
-| POST | `/v1/sitemap` | Bulk-submit every URL from a remote sitemap / sitemap index |
 | GET | `/v1/receipts/{id}` | Inspect a submission (`pendingLastReferenced` counts queue rows still referencing it; not a delivery verdict) |
 | GET | `/v1/admin/overview` | Queue depths and batch counters per site |
 | GET | `/v1/admin/queue?site=&status=` | Queued URLs with attempts and due times |
@@ -270,28 +269,37 @@ the OpenAPI document (`/openapi.json`, interactive docs at `/`).
 | GET | `/health/live`, `/health/ready` | Liveness / readiness probes (`/healthz`, `/readyz` aliases) |
 | GET | `/metrics` | Prometheus metrics (unrestricted token) |
 
-### Sitemap ingestion
+### Removed in v0.6: `POST /v1/sitemap`
 
-Bulk resubmission (site migrations, mass updates) goes through
-`POST /v1/sitemap` - point the relay at a sitemap and it fetches, parses
-(`<loc>` extraction incl. sitemap indexes, caps at 10,000 URLs), and submits
-through the same all-or-nothing pipeline with one receipt:
+Server-side sitemap fetching is gone - the relay now does exactly one job:
+accept URL lists, keep them safe, and deliver them. Prepare the URL list on
+the calling side (from your CMS, deploy script, or database) and submit it:
 
 ```bash
-curl -X POST http://localhost:3000/v1/sitemap \
-  -H "Authorization: Bearer $INDEXNOW_RELAY_TOKEN" \
-  -H 'content-type: application/json' \
-  -d '{"url":"https://www.example.com/sitemap.xml"}'
+curl --fail-with-body \
+  -X POST "${INDEXNOW_RELAY_URL%/}/v1/urls" \
+  -H "Authorization: Bearer ${INDEXNOW_RELAY_TOKEN}" \
+  -H "Content-Type: application/json" \
+  --data-binary @changed-urls.json
 ```
 
-Submission is **all-or-nothing**: if any URL is invalid, any host is not
-configured, or the token lacks access to any host, the whole request fails
-(`INVALID_URL` 400, `UNKNOWN_SITE` 400, `FORBIDDEN_SITE` 403) and nothing is
-enqueued.
+```json
+{
+  "urls": [
+    "https://www.example.com/products/updated-item",
+    "https://www.example.com/articles/new-post"
+  ],
+  "event": "updated"
+}
+```
 
-Error semantics from IndexNow: `200`/`202` succeed (202 = key validation
-pending), `429`/`5xx`/network errors retry with backoff, other `4xx` answers
-fail permanently into dead letters.
+Split submissions at 10,000 URLs per request (all-or-nothing validation
+applies per request). A receipt acknowledges queueing, not search-engine
+indexing. Keep each origin site's `sitemap.xml` published for crawlers -
+that remains the source of truth for full URL inventories; the relay only
+needs the URLs that actually changed. For deletions, send the deleted URL
+with `"event": "deleted"` from your change records rather than diffing
+against a sitemap.
 
 ## Operations
 
