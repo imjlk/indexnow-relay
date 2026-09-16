@@ -80,15 +80,37 @@ wait_for "http://127.0.0.1:$PORT_ONE/healthz" "env-config server"
 curl -fsS -X POST "http://127.0.0.1:$PORT_ONE/v1/urls" \
   -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
   -d '{"urls":["https://www.example.com/ci-smoke"]}' | grep -q receiptId
+# let the batch window pass so the stub's 503 actually happens and parks
+# the URL behind a persisted site cooldown
+for _ in $(seq 1 100); do
+  if curl -fsS "http://127.0.0.1:$PORT_ONE/v1/admin/overview" \
+      -H "Authorization: Bearer $TOKEN" | grep -q '"retryNotBefore":"2'; then
+    break
+  fi
+  sleep 0.2
+done
+curl -fsS "http://127.0.0.1:$PORT_ONE/v1/admin/overview" \
+  -H "Authorization: Bearer $TOKEN" | grep -q '"retryNotBefore":"2' || {
+  echo "smoke: the 503 never produced a site cooldown" >&2
+  exit 1
+}
 
-echo "== 2/5 pending queue survives a restart =="
+echo "== 2/5 pending queue and site cooldown survive a restart =="
+cooldown_before="$(curl -fsS "http://127.0.0.1:$PORT_ONE/v1/admin/overview" \
+  -H "Authorization: Bearer $TOKEN" | grep -o '"retryNotBefore":"[^"]*"')"
 stop_server
 sleep 0.5
 start_server "$WORK/server2.log"
 wait_for "http://127.0.0.1:$PORT_ONE/healthz" "restarted server"
-# the URL is still queued behind the site cooldown from the 503
+# the URL is still queued behind the same persisted cooldown
 curl -fsS "http://127.0.0.1:$PORT_ONE/v1/admin/queue?site=www.example.com" \
   -H "Authorization: Bearer $TOKEN" | grep -q 'ci-smoke'
+cooldown_after="$(curl -fsS "http://127.0.0.1:$PORT_ONE/v1/admin/overview" \
+  -H "Authorization: Bearer $TOKEN" | grep -o '"retryNotBefore":"[^"]*"')"
+[ "$cooldown_before" = "$cooldown_after" ] || {
+  echo "smoke: cooldown changed across restart ($cooldown_before -> $cooldown_after)" >&2
+  exit 1
+}
 stop_server
 
 echo "== 3/5 old database upgrades in place =="

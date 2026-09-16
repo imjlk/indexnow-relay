@@ -92,8 +92,22 @@ jobs:
             -H "Authorization: Bearer ci-token-0000000000001" \
             -H 'content-type: application/json' \
             -d '{"urls":["https://www.example.com/image-smoke"]}' | grep -q receiptId
-          # the image healthcheck probes the same PORT the server listens on
-          sleep 12
-          [ "$(docker inspect -f '{{.State.Health.Status}}' relay-smoke)" = "healthy" ]
+          # the image healthcheck probes the same PORT the server listens on;
+          # poll instead of sleeping - probe intervals are 30s after start period
+          for i in $(seq 1 90); do
+            HEALTH="$(docker inspect -f '{{.State.Health.Status}}' relay-smoke)"
+            [ "$HEALTH" = "healthy" ] && break
+            if [ "$HEALTH" = "unhealthy" ]; then
+              docker logs relay-smoke
+              echo "smoke: container became unhealthy" >&2
+              exit 1
+            fi
+            sleep 1
+          done
+          if [ "$HEALTH" != "healthy" ]; then
+            docker logs relay-smoke
+            echo "smoke: container never reached healthy" >&2
+            exit 1
+          fi
           docker rm -f relay-smoke
           kill $STUB_PID
